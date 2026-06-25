@@ -1,0 +1,15 @@
+{
+  "sopId": "kujiale",
+  "name": "酷家乐效果图接单",
+  "version": "0.1.0",
+  "createdAt": "2026-06-25",
+  "steps": [
+    {
+      "id": "step-001",
+      "name": "需求确认",
+      "description": "从客户消息中提取效果图需求：空间类型、风格、尺寸、数量",
+      "mode": "manual",
+      "order": 1
+    }
+  ]
+}
