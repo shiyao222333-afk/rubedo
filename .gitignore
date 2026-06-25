@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+data/scheduler.db
+data/holidays_*.json
+*.egg-info/
+dist/
+build/

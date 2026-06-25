@@ -1,0 +1,26 @@
+{
+  "name": "酷家乐接单 SOP",
+  "version": "0.1.0",
+  "steps": [
+    {
+      "name": "需求确认",
+      "mode": "manual",
+      "description": "与客户沟通，确认户型、风格、预算"
+    },
+    {
+      "name": "方案设计",
+      "mode": "manual",
+      "description": "酷家乐中制作效果图"
+    },
+    {
+      "name": "客户审核",
+      "mode": "manual",
+      "description": "发送效果图给客户，收集反馈"
+    },
+    {
+      "name": "修改交付",
+      "mode": "manual",
+      "description": "根据反馈修改并交付最终文件"
+    }
+  ]
+}
