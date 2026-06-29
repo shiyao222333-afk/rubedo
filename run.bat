@@ -31,5 +31,18 @@ if %errorlevel% neq 0 (
 echo [启动] 正在启动凝华...
 echo.
 python app.py
+set EXIT_CODE=%errorlevel%
 
+if %EXIT_CODE% NEQ 0 (
+    echo.
+    echo ===================================================
+    echo   应用异常退出（退出码 %EXIT_CODE%）
+    echo   请查看上方错误信息
+    echo ===================================================
+    pause
+    cmd /k
+)
+
+echo.
+echo [停止] 应用已停止。
 pause

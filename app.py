@@ -1,5 +1,5 @@
 """
-Rubedo · 凝华 — v0.2.0 平台基建
+Rubedo · 凝华 — v0.3.0 酷家乐 SOP + 时间审计
 NiceGUI 桌面应用入口
 
 架构：
@@ -21,6 +21,9 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
+
+# ====== Timelog ======
+import timelog
 
 # ====== APScheduler ======
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -1131,55 +1134,333 @@ def api_get_markers():
 
 @ui.page("/sop/{name}")
 def sop_page(name: str):
-    """SOP workflow page skeleton."""
-    # CSP / CDN
+    """SOP workflow page — v0.3.0: stages + timer."""
+    # CSS
     ui.add_head_html("""
     <style>
-        .sop-container {
-            max-width: 900px; margin: 0 auto;
-            padding: 24px; color: #eee;
-        }
+        .sop-container { max-width: 900px; margin: 0 auto; padding: 24px; color: #eee; }
         .sop-container h1 { color: #e94560; }
+        .sop-container h2 { color: #e0e0e0; font-size: 1.1rem; margin: 28px 0 12px 0; }
+        .sop-stage-header {
+            background: #1a1a2e; border-left: 4px solid #e94560;
+            border-radius: 6px; padding: 10px 16px; margin: 20px 0 0 0;
+            font-weight: 600; font-size: 1rem; color: #e94560;
+        }
+        .sop-stage-header.pending { border-left-color: #9E9E9E; color: #9E9E9E; }
         .sop-step {
             background: #16213e; border: 1px solid #0f3460;
-            border-radius: 8px; padding: 16px; margin: 12px 0;
+            border-radius: 8px; padding: 14px 16px; margin: 8px 0 0 20px;
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; transition: all 0.2s;
         }
-        .sop-step.pending { border-left: 4px solid #9E9E9E; }
-        .sop-step.in_progress { border-left: 4px solid #2196F3; }
-        .sop-step.done { border-left: 4px solid #4CAF50; opacity: 0.7; }
-        .sop-step h3 { margin: 0 0 8px 0; }
-        .sop-step .mode {
-            display: inline-block; padding: 2px 8px;
-            border-radius: 4px; font-size: 12px;
+        .sop-step.active { border-color: #2196F3; background: #1a2744; }
+        .sop-step.done { border-color: #4CAF50; opacity: 0.8; }
+        .sop-step-info { flex: 1; min-width: 0; }
+        .sop-step-info .name { font-size: 0.95rem; font-weight: 500; }
+        .sop-step-info .desc { font-size: 0.8rem; color: #8899aa; margin-top: 2px; }
+        .mode-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 4px;
+            font-size: 11px; font-weight: 500; margin-right: 8px;
         }
-        .sop-step .mode.auto { background: #7B1FA2; color: #fff; }
-        .sop-step .mode.manual { background: #F57C00; color: #fff; }
+        .mode-badge.auto { background: #7B1FA2; color: #fff; }
+        .mode-badge.manual { background: #F57C00; color: #fff; }
+        .mode-badge.semi { background: #0288D1; color: #fff; }
+        .sop-step-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+        .timer-display { font-size: 0.85rem; color: #4CAF50; font-weight: 500; min-width: 80px; text-align: right; }
+        .top-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+        .order-info { font-size: 0.85rem; color: #8899aa; }
+        .summary-bar {
+            margin-top: 24px; padding: 12px 16px; background: #1a1a2e;
+            border-radius: 8px; display: flex; align-items: center; justify-content: space-between;
+        }
     </style>
     """)
 
+    sop_label = {"kujiale": "酷家乐接单 SOP", "general": "通用 SOP"}.get(name, name)
+
+    # Load SOP definition
+    sop_file = SOPS_DIR / f"{name}.json"
+    if not sop_file.exists():
+        with ui.column().classes("sop-container"):
+            ui.link("← 返回日历", "/")
+            ui.label(f"「{sop_label}」SOP 尚未配置").classes("text-h5")
+            ui.label("在 data/sops/ 目录下创建 JSON 文件即可定义环节")
+        return
+
+    try:
+        sop_def = json.loads(sop_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        with ui.column().classes("sop-container"):
+            ui.link("← 返回日历", "/")
+            ui.label("SOP 定义文件格式错误").classes("text-negative")
+        return
+
+    # Check active order
+    active_order = timelog.get_active_order(name)
+
+    # Gather all steps into a flat list with stage info
+    all_steps = []
+    for stage in sop_def.get("stages", []):
+        stage_name = stage.get("name", "")
+        status = stage.get("status", "")
+        for step in stage.get("steps", []):
+            if step.get("id"):
+                all_steps.append({
+                    **step,
+                    "stage_name": stage_name,
+                    "stage_status": status,
+                })
+
+    # UI element references
+    step_cards: dict[str, ui.card] = {}
+    step_btns: dict[str, ui.button] = {}
+    step_dur_labels: dict[str, ui.label] = {}
+    step_info_labels: dict[str, ui.label] = {}
+
     with ui.column().classes("sop-container"):
-        ui.link("← 返回日历", "/").classes("back-link")
+        # Top bar
+        with ui.row().classes("top-bar w-full"):
+            ui.link("← 返回日历", "/")
+            ui.link("📊 时间审计", f"/sop/{name}/stats")
+            ui.space()
+            if active_order:
+                t = active_order["started_at"][:16].replace("T", " ")
+                ui.label(f"本单开始：{t}").classes("order-info")
+            else:
+                ui.label("暂无活跃订单").classes("order-info")
 
-        sop_label = {"kujiale": "酷家乐接单 SOP", "general": "通用 SOP"}.get(name, name)
-        ui.label(sop_label).classes("text-h3")
+        ui.label(sop_label).classes("text-h3 mb-4")
 
-        # Try loading SOP definition
-        sop_file = SOPS_DIR / f"{name}.json"
-        if sop_file.exists():
-            try:
-                sop_def = json.loads(sop_file.read_text(encoding="utf-8"))
-                for step in sop_def.get("steps", []):
-                    with ui.card().classes(f"sop-step {step.get('status', 'pending')}"):
-                        ui.label(step.get("name", "未命名环节")).classes("text-h6")
-                        mode = step.get("mode", "manual")
-                        ui.label(f"{'自动' if mode == 'auto' else '手动'}").classes(f"mode {mode}")
-                        ui.label(step.get("description", "")).classes("text-caption")
-            except (json.JSONDecodeError, OSError):
-                ui.label("SOP 定义文件格式错误").classes("text-negative")
-        else:
-            ui.label(f"「{sop_label}」SOP 尚未配置")
-            ui.label("在 data/sops/ 目录下创建对应的 JSON 文件即可定义环节")
-            ui.label("v0.3.0 将提供完整的 SOP 定义和交互功能")
+        # [Start new order] button
+        new_order_btn = ui.button("🆕 开始新单", on_click=lambda: _start_new_order(name, sop_file))
+        new_order_btn.visible = active_order is None
+
+        # Build step UI for each stage
+        current_stage = None
+        for step_data in all_steps:
+            sid = step_data["id"]
+            stage_name = step_data.get("stage_name", "")
+
+            # Stage header
+            if stage_name != current_stage:
+                current_stage = stage_name
+                cls = "sop-stage-header pending" if step_data.get("stage_status") == "pending" else "sop-stage-header"
+                ui.label(stage_name).classes(cls)
+
+            # Get timelog step state
+            tl_step = None
+            if active_order:
+                for s in active_order.get("steps", []):
+                    if s["id"] == sid:
+                        tl_step = s
+                        break
+
+            mode = step_data.get("mode", "manual")
+            mode_text = {"auto": "自动", "manual": "手动", "semi": "半自动"}.get(mode, mode)
+            is_started = tl_step and tl_step.get("started") is not None
+            is_finished = tl_step and tl_step.get("duration_min") is not None
+            has_button = mode in ("manual", "semi")
+            is_auto = mode == "auto"
+
+            # Determine card CSS class
+            card_cls = "sop-step"
+            if is_finished:
+                card_cls += " done"
+            elif is_started:
+                card_cls += " active"
+
+            with ui.card().classes(card_cls) as card:
+                step_cards[sid] = card
+
+                # Left: info
+                with ui.column().classes("sop-step-info"):
+                    with ui.row():
+                        ui.label(f"{sid} {step_data['name']}").classes("name")
+                        ui.label(mode_text).classes(f"mode-badge {mode}")
+                    desc = step_data.get("description", "")
+                    if desc:
+                        ui.label(desc).classes("desc")
+
+                # Right: actions
+                with ui.row().classes("sop-step-actions"):
+                    dur_label = ui.label("").classes("timer-display")
+                    step_dur_labels[sid] = dur_label
+
+                    if is_finished:
+                        dur = tl_step["duration_min"]
+                        dur_label.set_text(f"{dur} 分钟")
+                        if has_button:
+                            # Show a "done" indicator instead of button
+                            ui.label("✓").classes("text-positive")
+                    elif is_started:
+                        dur_label.set_text("计时中...")
+                        if has_button:
+                            btn = ui.button("⏹ 完成", on_click=lambda sid=sid: _on_step_finish(sid, name))
+                            step_btns[sid] = btn
+                    else:
+                        if has_button:
+                            btn = ui.button("▶ 开始", on_click=lambda sid=sid: _on_step_start(sid, name))
+                            step_btns[sid] = btn
+                        if is_auto:
+                            ui.label("—").classes("text-grey")
+
+        # Bottom: summary + [完成本单]
+        summary_label = ui.label("").classes("text-caption")
+        finish_btn = ui.button("✅ 完成本单", on_click=lambda: _on_order_finish(name))
+        finish_btn.visible = active_order is not None
+
+        if active_order:
+            _update_summary(active_order, summary_label)
+
+
+# --- SOP callback helpers ---
+
+def _start_new_order(sop_id: str, sop_file: Path):
+    """Create a new order and refresh the page."""
+    timelog.start_order(sop_id, sop_file)
+    ui.notify("新单已开始！开始计时各环节", type="positive")
+    ui.open(f"/sop/{sop_id}")
+
+
+def _on_step_start(step_id: str, sop_id: str):
+    """Handle [Start] button click."""
+    order = timelog.get_active_order(sop_id)
+    if not order:
+        ui.notify("请先点击「开始新单」", type="warning")
+        return
+    timelog.start_step(order["order_id"], step_id)
+    ui.open(f"/sop/{sop_id}")  # Refresh page to update UI
+
+
+def _on_step_finish(step_id: str, sop_id: str):
+    """Handle [Finish] button click."""
+    order = timelog.get_active_order(sop_id)
+    if not order:
+        return
+    result = timelog.finish_step(order["order_id"], step_id)
+    if result:
+        ui.notify(f"完成！用时 {result['duration_min']} 分钟", type="positive")
+    ui.open(f"/sop/{sop_id}")
+
+
+def _on_order_finish(sop_id: str):
+    """Handle [Finish Order] button click."""
+    order = timelog.get_active_order(sop_id)
+    if not order:
+        return
+    timelog.finish_order(order["order_id"])
+    total = sum(s.get("duration_min", 0) or 0 for s in order.get("steps", []))
+    ui.notify(f"本单完成！总耗时 {total:.1f} 分钟", type="positive")
+    ui.open(f"/sop/{sop_id}")
+
+
+def _update_summary(order: dict, label: ui.label):
+    """Update the bottom summary label with order stats."""
+    done_count = sum(1 for s in order.get("steps", []) if s.get("duration_min") is not None)
+    total_steps = len(order.get("steps", []))
+    total_min = sum(s.get("duration_min", 0) or 0 for s in order.get("steps", []))
+    label.set_text(f"已完成 {done_count}/{total_steps} 个步骤，累计耗时 {total_min:.1f} 分钟")
+
+
+# ====== Stats Page ======
+
+@ui.page("/sop/{name}/stats")
+def sop_stats(name: str):
+    """Time audit statistics page — v0.3.0."""
+    sop_label = {"kujiale": "酷家乐接单 SOP", "general": "通用 SOP"}.get(name, name)
+
+    ui.add_head_html("""
+    <style>
+        .stats-container { max-width: 900px; margin: 0 auto; padding: 24px; color: #eee; }
+        .stats-container h1 { color: #e94560; }
+        .stat-card {
+            background: #16213e; border: 1px solid #0f3460;
+            border-radius: 8px; padding: 16px;
+        }
+        .stat-table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+        .stat-table th {
+            text-align: left; padding: 8px 12px; font-size: 0.8rem;
+            color: #8899aa; border-bottom: 1px solid #0f3460;
+        }
+        .stat-table td {
+            padding: 8px 12px; font-size: 0.9rem;
+            border-bottom: 1px solid #0f3460;
+        }
+        .stat-table tr:hover td { background: #1a2744; }
+        .bottleneck { color: #F44336; font-weight: 600; }
+        .order-summary { font-size: 0.85rem; color: #8899aa; }
+    </style>
+    """)
+
+    with ui.column().classes("stats-container"):
+        with ui.row().classes("w-full items-center"):
+            ui.link("← 返回 SOP", f"/sop/{name}")
+            ui.space()
+        ui.label(f"时间审计 — {sop_label}").classes("text-h3 mb-4")
+
+        stats = timelog.get_step_stats(name)
+        orders_summary = timelog.get_all_orders_summary(name)
+        all_orders = timelog.get_all_orders(name)
+
+        if not all_orders:
+            ui.label("暂无数据，接单后回来查看").classes("text-caption")
+            return
+
+        total_orders = len(all_orders)
+        finished_orders = sum(1 for o in all_orders if o.get("finished_at"))
+        all_durations = []
+        for o in all_orders:
+            all_durations.extend(s.get("duration_min", 0) or 0 for s in o.get("steps", []))
+        grand_total = sum(all_durations)
+
+        with ui.row().classes("w-full gap-4"):
+            with ui.card().classes("stat-card flex-1"):
+                ui.label(f"{total_orders}").classes("text-h4")
+                ui.label("总订单数").classes("text-caption")
+            with ui.card().classes("stat-card flex-1"):
+                ui.label(f"{finished_orders}").classes("text-h4")
+                ui.label("已完成").classes("text-caption")
+            with ui.card().classes("stat-card flex-1"):
+                ui.label(f"{grand_total:.0f}").classes("text-h4")
+                ui.label("累计耗时(分钟)").classes("text-caption")
+            with ui.card().classes("stat-card flex-1"):
+                avg = grand_total / total_orders if total_orders else 0
+                ui.label(f"{avg:.0f}").classes("text-h4")
+                ui.label("平均每单(分钟)").classes("text-caption")
+
+        if stats:
+            ui.label("各环节耗时统计").classes("text-h5 mt-6")
+            with ui.card().classes("stat-card"):
+                sorted_stats = sorted(stats.items(), key=lambda x: x[1].get("avg_min", 0), reverse=True)
+                max_avg = sorted_stats[0][1].get("avg_min", 0) if sorted_stats else 0
+
+                table_html = '<table class="stat-table"><tr><th>步骤</th><th>名称</th><th>执行次数</th><th>平均用时</th><th>最大用时</th><th>合计</th></tr>'
+                for sid, s in sorted_stats:
+                    is_bottleneck = s.get("avg_min", 0) >= max_avg * 0.7 and max_avg > 0
+                    cls = 'bottleneck' if is_bottleneck else ''
+                    table_html += (
+                        f'<tr>'
+                        f'<td>{sid}</td>'
+                        f'<td>{s["name"]}</td>'
+                        f'<td>{s["count"]}</td>'
+                        f'<td class="{cls}">{s["avg_min"]} 分钟</td>'
+                        f'<td>{s["max_min"]} 分钟</td>'
+                        f'<td>{s["total_min"]} 分钟</td>'
+                        f'</tr>'
+                    )
+                table_html += '</table>'
+                ui.html(table_html)
+
+        if orders_summary:
+            ui.label("历史订单").classes("text-h5 mt-6")
+            with ui.card().classes("stat-card"):
+                for o in orders_summary:
+                    t = o.get("finished_at") or o["started_at"]
+                    t_short = t[:16].replace("T", " ") if t else "?"
+                    status = "✅" if o.get("finished_at") else "🔄"
+                    ui.label(
+                        f"{status} {o['order_id']} — {t_short} — {o['step_count']} 步骤 — 总耗时 {o['total_min']} 分钟"
+                    ).classes("order-summary")
 
 
 # ====== Helper ======
@@ -1294,20 +1575,6 @@ def on_startup():
     mfp = DATA_DIR / "markers.json"
     if not mfp.exists():
         mfp.write_text("[]", encoding="utf-8")
-
-    # Create sample SOP if none exist
-    kj = SOPS_DIR / "kujiale.json"
-    if not kj.exists():
-        kj.write_text(json.dumps({
-            "name": "酷家乐接单 SOP",
-            "version": "0.1.0",
-            "steps": [
-                {"name": "需求确认", "mode": "manual", "description": "与客户沟通，确认户型、风格、预算"},
-                {"name": "方案设计", "mode": "manual", "description": "酷家乐中制作效果图"},
-                {"name": "客户审核", "mode": "manual", "description": "发送效果图给客户，收集反馈"},
-                {"name": "修改交付", "mode": "manual", "description": "根据反馈修改并交付最终文件"},
-            ]
-        }, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # Start APScheduler (lazy init on first use)
     scheduler = _get_scheduler()

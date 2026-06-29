@@ -1,26 +1,118 @@
 {
   "name": "酷家乐接单 SOP",
-  "version": "0.1.0",
-  "steps": [
+  "version": "0.3.0",
+  "source": "data/sops/source/kujiale.md",
+  "updated": "2026-06-29",
+  "stages": [
     {
-      "name": "需求确认",
-      "mode": "manual",
-      "description": "与客户沟通，确认户型、风格、预算"
+      "stage": 1,
+      "name": "接单",
+      "steps": [
+        {
+          "id": "1.1",
+          "name": "监控群消息",
+          "description": "客服在接单群发订单需求（含价格），Nigredo 监控消息并提取订单摘要",
+          "mode": "auto",
+          "provider": "nigredo",
+          "input": "企微接单群消息",
+          "output": "订单摘要（客户需求 + 价格）",
+          "est_min": 0
+        },
+        {
+          "id": "1.2",
+          "name": "判断接不接",
+          "description": "看价格和客户要求，决定是否接单",
+          "mode": "manual",
+          "provider": "user",
+          "input": "订单摘要",
+          "output": "接/不接 决策",
+          "est_min": 3
+        },
+        {
+          "id": "1.3",
+          "name": "触发接单",
+          "description": "确认接单后，点击按钮触发后续流程",
+          "mode": "manual",
+          "provider": "user",
+          "input": "用户决策",
+          "output": "接单信号 → 进入环节 2",
+          "est_min": 1
+        }
+      ]
     },
     {
-      "name": "方案设计",
-      "mode": "manual",
-      "description": "酷家乐中制作效果图"
+      "stage": 1,
+      "name": "私聊接单",
+      "steps": [
+        {
+          "id": "2.1",
+          "name": "发1表示意向",
+          "description": "Nigredo 给客服私聊发数字 1，表示有意向",
+          "mode": "auto",
+          "provider": "nigredo",
+          "input": "接单信号",
+          "output": "私聊消息已发送",
+          "est_min": 0
+        },
+        {
+          "id": "2.2",
+          "name": "问客户要求",
+          "description": "Nigredo 私聊追问客服：客户大致有什么要求？",
+          "mode": "auto",
+          "provider": "nigredo",
+          "input": "客服回复",
+          "output": "客户要求摘要",
+          "est_min": 0
+        },
+        {
+          "id": "2.3",
+          "name": "发接确认",
+          "description": "客户要求没问题后，Nigredo 发 接 确认接单",
+          "mode": "auto",
+          "provider": "nigredo",
+          "input": "用户确认信号",
+          "output": "接已发送",
+          "est_min": 0
+        },
+        {
+          "id": "2.4",
+          "name": "提供案例图片",
+          "description": "用户从案例文件夹选图，Nigredo 发送给客服",
+          "mode": "semi",
+          "provider": "user+nigredo",
+          "input": "案例文件夹",
+          "output": "图片已发送",
+          "est_min": 5
+        },
+        {
+          "id": "2.5",
+          "name": "等待拉新群",
+          "description": "Nigredo 检测客服是否拉了新群（你 + 客服 + 客户）",
+          "mode": "auto",
+          "provider": "nigredo",
+          "input": "企微事件",
+          "output": "新群 ID",
+          "est_min": 0
+        }
+      ]
     },
     {
-      "name": "客户审核",
-      "mode": "manual",
-      "description": "发送效果图给客户，收集反馈"
+      "stage": 2,
+      "name": "需求沟通",
+      "status": "pending",
+      "steps": []
     },
     {
-      "name": "修改交付",
-      "mode": "manual",
-      "description": "根据反馈修改并交付最终文件"
+      "stage": 3,
+      "name": "酷家乐制作",
+      "status": "pending",
+      "steps": []
+    },
+    {
+      "stage": 4,
+      "name": "交付 + 收款",
+      "status": "pending",
+      "steps": []
     }
   ]
 }
