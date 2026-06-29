@@ -1,8 +1,12 @@
 {
   "name": "酷家乐接单 SOP",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "source": "data/sops/source/kujiale.md",
   "updated": "2026-06-29",
+  "changelog": [
+    "v0.4.0: 加结构化要求确认清单 + 麻烦客户过滤器 + 异常出口(E1~E6) + 4.16按轮次记录 + 客户信息归档步骤",
+    "v0.3.0: 五大阶段完整填充（31步）"
+  ],
   "stages": [
     {
       "stage": 1,
@@ -21,12 +25,15 @@
         {
           "id": "1.2",
           "name": "判断接不接",
-          "description": "看价格和客户要求，决定是否接单",
+          "description": "客服已在接单群发订单（含客户要求 + 价格），看后决定是否接单",
           "mode": "manual",
           "provider": "user",
-          "input": "订单摘要",
+          "input": "接单群消息（客户要求 + 价格）",
           "output": "接/不接 决策",
-          "est_min": 3
+          "est_min": 3,
+          "exceptions": [
+            { "code": "E1", "name": "不接", "action": "流程终止，无需后续操作" }
+          ]
         },
         {
           "id": "1.3",
@@ -97,22 +104,286 @@
       ]
     },
     {
-      "stage": 2,
-      "name": "需求沟通",
-      "status": "pending",
-      "steps": []
-    },
-    {
       "stage": 3,
-      "name": "酷家乐制作",
-      "status": "pending",
-      "steps": []
+      "name": "需求沟通",
+      "steps": [
+        {
+          "id": "3.1",
+          "name": "和顾客打招呼",
+          "description": "客服拉好群后，在群里和顾客打招呼",
+          "mode": "manual",
+          "provider": "user",
+          "input": "新群",
+          "output": "打招呼消息",
+          "est_min": 1
+        },
+        {
+          "id": "3.2",
+          "name": "确认客户要求（结构化）",
+          "description": "用确认清单逐项核对客户要求，同时感受客户沟通风格（判断是否麻烦）。要求确认后让客户在群里文字确认一遍",
+          "mode": "manual",
+          "provider": "user",
+          "input": "阶段2 已确认的要求（可能不完整） + 客户在群里的补充",
+          "output": "客户文字确认的最终要求清单",
+          "est_min": 10,
+          "requirement_checklist": [
+            "户型（几室几厅、面积）",
+            "风格（现代/简约/新中式/其他）",
+            "配色偏好",
+            "特殊功能需求（如：需要工作台、宠物空间等）",
+            "预算/价格确认",
+            "交付时间要求"
+          ],
+          "exceptions": [
+            { "code": "E2", "name": "客户太麻烦", "action": "礼貌退出，不接此单。判断标准：要求模糊且反复变、沟通成本高、预算过低" }
+          ]
+        },
+        {
+          "id": "3.3",
+          "name": "发开始设计确认",
+          "description": "要求全部确认后，发「我先开始设计，有问题群里沟通」",
+          "mode": "manual",
+          "provider": "user",
+          "input": "确认完毕的要求",
+          "output": "开始设计信号",
+          "est_min": 1
+        }
+      ]
     },
     {
       "stage": 4,
+      "name": "酷家乐制作",
+      "note": "多条路线，当前记录最常用最快的路线",
+      "steps": [
+        {
+          "id": "4.1",
+          "name": "新建家装设计 + 导入户型图",
+          "description": "酷家乐新建项目，导入客户发的户型图",
+          "mode": "manual",
+          "provider": "user",
+          "input": "客户户型图",
+          "output": "户型图已导入",
+          "est_min": 3
+        },
+        {
+          "id": "4.2",
+          "name": "自动识别生成户型",
+          "description": "酷家乐自动识别户型图，生成初步户型",
+          "mode": "semi",
+          "provider": "user",
+          "input": "导入的户型图",
+          "output": "自动生成的户型",
+          "est_min": 2
+        },
+        {
+          "id": "4.3",
+          "name": "审查 + 手动修改户型",
+          "description": "检查自动生成的户型是否有误，手动修正错误",
+          "mode": "manual",
+          "provider": "user",
+          "input": "自动生成的户型",
+          "output": "修正后的户型",
+          "est_min": 10,
+          "exceptions": [
+            { "code": "E3", "name": "户型图模糊/无法识别", "action": "请客户重新发送清晰户型图，回到 4.1" }
+          ]
+        },
+        {
+          "id": "4.4",
+          "name": "改入户型改造部分",
+          "description": "把客户要求的户型改造（拆墙、改门洞等）改进去",
+          "mode": "manual",
+          "provider": "user",
+          "input": "客户改造要求 + 修正后的户型",
+          "output": "改造后的户型",
+          "est_min": 15
+        },
+        {
+          "id": "4.5",
+          "name": "保存空白户型布局",
+          "description": "户型改造完成后，保存为空白户型图（无家具软装）。关键：户型必须准确，后面改很麻烦",
+          "mode": "manual",
+          "provider": "user",
+          "input": "改造后的户型",
+          "output": "空白户型布局文件",
+          "est_min": 1
+        },
+        {
+          "id": "4.6",
+          "name": "回顾客户要求",
+          "description": "设计前回顾客户的全部要求（风格、配色、特殊需求），确保方向正确",
+          "mode": "manual",
+          "provider": "user",
+          "input": "阶段2+3 确认的客户要求清单",
+          "output": "设计方向明确",
+          "est_min": 3
+        },
+        {
+          "id": "4.7",
+          "name": "AI 效果图：导入空白户型",
+          "description": "使用酷家乐 AI 效果图功能，导入上一步的空白户型图。户型必须准确，否则后续改起来很麻烦",
+          "mode": "manual",
+          "provider": "user",
+          "input": "空白户型布局文件",
+          "output": "AI 效果图项目已创建",
+          "est_min": 2
+        },
+        {
+          "id": "4.8",
+          "name": "按客户要求选全屋风格",
+          "description": "根据客户要求选择全屋风格（现代/简约/新中式等）",
+          "mode": "manual",
+          "provider": "user",
+          "input": "客户风格要求",
+          "output": "全屋风格已选定",
+          "est_min": 3
+        },
+        {
+          "id": "4.9",
+          "name": "自动生成平面布局",
+          "description": "酷家乐 AI 自动生成全屋平面布局（家具摆放、空间规划）",
+          "mode": "semi",
+          "provider": "user",
+          "input": "空白户型 + 选定风格",
+          "output": "自动生成的平面布局",
+          "est_min": 5
+        },
+        {
+          "id": "4.10",
+          "name": "手动调整布局问题",
+          "description": "检查自动生成的布局，手动修正有问题的地方",
+          "mode": "manual",
+          "provider": "user",
+          "input": "自动生成的平面布局",
+          "output": "调整后的平面布局",
+          "est_min": 15
+        },
+        {
+          "id": "4.11",
+          "name": "⏸️ 发平面布局给客户确认",
+          "description": "暂停点：把自动生成的平面布局发给客户确认，客户说OK再继续下一步",
+          "mode": "manual",
+          "provider": "user",
+          "input": "调整后的平面布局",
+          "output": "客户确认通过",
+          "est_min": 10
+        },
+        {
+          "id": "4.12",
+          "name": "AI 生成全屋效果图",
+          "description": "客户确认平面布局后，继续用 AI 生成全屋三维效果图",
+          "mode": "semi",
+          "provider": "user",
+          "input": "确认后的平面布局",
+          "output": "全屋效果图初版",
+          "est_min": 8
+        },
+        {
+          "id": "4.13",
+          "name": "手动调整效果图",
+          "description": "检查 AI 生成的效果图，手动修正不合理的部分（材质、灯光、比例等）",
+          "mode": "manual",
+          "provider": "user",
+          "input": "全屋效果图初版",
+          "output": "调整后的效果图",
+          "est_min": 20
+        },
+        {
+          "id": "4.14",
+          "name": "按客户要求调整细节",
+          "description": "对照客户的具体要求（特殊颜色、材质偏好、功能需求）微调效果图",
+          "mode": "manual",
+          "provider": "user",
+          "input": "客户要求清单 + 调整后的效果图",
+          "output": "细节调整完成的效果图",
+          "est_min": 15
+        },
+        {
+          "id": "4.15",
+          "name": "⏸️ 发初稿给客户看",
+          "description": "暂停点：生成初稿效果图发给客户，等待反馈",
+          "mode": "manual",
+          "provider": "user",
+          "input": "细节调整完成的效果图",
+          "output": "客户反馈意见",
+          "est_min": 15
+        },
+        {
+          "id": "4.16",
+          "name": "🔁 修改迭代（按轮次记录）",
+          "description": "根据客户反馈修改效果图，每轮独立计时。每轮发低清晰度拍屏预览给客户确认",
+          "mode": "manual_loop",
+          "provider": "user",
+          "input": "客户反馈意见（每轮可能不同）",
+          "output": "修改后的效果图（拍屏预览）",
+          "est_min_per_round": 20,
+          "note": "循环步骤。每轮点击「完成本轮」记录耗时。支持 1~N 轮，时间审计按轮次分别统计",
+          "exceptions": [
+            { "code": "E4", "name": "修改超出约定范围", "action": "暂停，和客户/客服沟通是否加价，确认后再继续" }
+          ]
+        },
+        {
+          "id": "4.17",
+          "name": "客户最终确认",
+          "description": "修改到客户满意，最终确认效果图无误",
+          "mode": "manual",
+          "provider": "user",
+          "input": "修改迭代后的效果图",
+          "output": "客户最终确认通过",
+          "est_min": 5
+        }
+      ]
+    },
+    {
+      "stage": 5,
       "name": "交付 + 收款",
-      "status": "pending",
-      "steps": []
+      "steps": [
+        {
+          "id": "5.1",
+          "name": "要求客户淘宝店铺回复满意",
+          "description": "客户在淘宝店铺确认收货并回复满意评价",
+          "mode": "manual",
+          "provider": "user",
+          "input": "客户最终确认",
+          "output": "淘宝店铺满意评价",
+          "est_min": 2,
+          "exceptions": [
+            { "code": "E6", "name": "客户不回复/不确认收货", "action": "等待 24 小时，仍未回复则发消息催收一次，再等 24 小时" }
+          ]
+        },
+        {
+          "id": "5.2",
+          "name": "发送高清源文件",
+          "description": "之前给客户看的都是低清晰度拍屏版本，确认满意后发送高清源文件",
+          "mode": "manual",
+          "provider": "user",
+          "input": "最终效果图源文件",
+          "output": "高清源文件已交付",
+          "est_min": 3
+        },
+        {
+          "id": "5.3",
+          "name": "填写收款表单",
+          "description": "各店铺网页不同，但都需要输入单号、金额等相同信息。需要一个快速复制信息的工具，减少重复填写",
+          "mode": "semi",
+          "provider": "user",
+          "input": "单号 / 金额 / 客户信息",
+          "output": "收款表单已提交",
+          "est_min": 5,
+          "note": "待开发：一键复制信息面板（单号、金额、日期、客户名），省去在不同店铺页面间来回切换查信息"
+        },
+        {
+          "id": "5.4",
+          "name": "📁 客户信息归档",
+          "description": "将客户信息、要求、最终效果图存档，方便下次客户再来时快速调取",
+          "mode": "manual",
+          "provider": "user",
+          "input": "客户信息 + 最终效果图 + 客户要求清单",
+          "output": "客户档案已存档",
+          "est_min": 5,
+          "note": "待设计：客户档案格式（姓名/联系方式/户型/风格偏好/历史订单）。存档位置：data/customers/"
+        }
+      ]
     }
   ]
 }
