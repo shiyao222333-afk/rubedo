@@ -1,48 +1,59 @@
 @echo off
-chcp 65001 >nul
-title 凝华 · Rubedo
+chcp 437 >nul
+title Rubedo v0.3.0
 
-echo ========================================
-echo   凝华 · Rubedo v0.2.0 平台基建
-echo ========================================
+echo ================================
+echo   Rubedo v0.3.0 - SOP Platform
+echo ================================
 echo.
 
-:: 检查 Python
+:: Kill old process on port 8081 (fix "only one usage of socket" error)
+powershell -Command "Get-NetTCPConnection -LocalPort 8081 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+powershell -Command "Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*rubedo*' -or $_.MainWindowTitle -like '*rubedo*' } | Stop-Process -Force -ErrorAction SilentlyContinue" >nul 2>&1
+timeout /t 2 >nul
+
+:: Check Python
 python --version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [错误] 未找到 Python，请先安装 Python 3.10+
-    pause
-    exit /b 1
-)
+if %errorlevel% neq 0 goto no_python
 
-:: 检查 NiceGUI
-python -c "import nicegui" >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [安装] 正在安装 NiceGUI...
-    pip install nicegui
-    if %errorlevel% neq 0 (
-        echo [错误] NiceGUI 安装失败
-        pause
-        exit /b 1
-    )
-)
+:: Check dependencies
+python -c "import nicegui, apscheduler, starlette" >nul 2>&1
+if %errorlevel% equ 0 goto deps_ok
 
-:: 启动应用
-echo [启动] 正在启动凝华...
+echo [INSTALL] Installing dependencies...
+pip install nicegui APScheduler
+if %errorlevel% neq 0 goto install_fail
+
+:deps_ok
+
+:: Start app
+echo [START] Starting Rubedo...
 echo.
 python app.py
 set EXIT_CODE=%errorlevel%
+if %EXIT_CODE% NEQ 0 goto error_exit
+goto normal_exit
 
-if %EXIT_CODE% NEQ 0 (
-    echo.
-    echo ===================================================
-    echo   应用异常退出（退出码 %EXIT_CODE%）
-    echo   请查看上方错误信息
-    echo ===================================================
-    pause
-    cmd /k
-)
+:no_python
+echo [ERROR] Python not found. Please install Python 3.10+
+pause
+exit /b 1
 
+:install_fail
+echo [ERROR] Dependency installation failed
+pause
+exit /b 1
+
+:error_exit
 echo.
-echo [停止] 应用已停止。
+echo ===================================================
+echo   App exited abnormally (exit code %EXIT_CODE%)
+echo   Check error messages above
+echo ===================================================
+pause
+cmd /k
+
+:normal_exit
+echo.
+echo [STOP] App stopped.
 pause

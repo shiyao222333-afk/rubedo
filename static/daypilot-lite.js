@@ -1,0 +1,1 @@
+Failed to fetch version info for daypilot/daypilot-lite.
