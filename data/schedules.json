@@ -1,1 +1,22 @@
-{}
+[
+  {
+    "id": "schedule-6c493bab",
+    "title": "1",
+    "repeat_mode": "preheat",
+    "target_type": "shopping_festival",
+    "target_id": "年货节",
+    "target_date": "01-06",
+    "target_name": "年货节",
+    "preheat_days": 7,
+    "start_time": "13:30",
+    "duration_minutes": 60,
+    "kind": "reminder",
+    "sop_page": "",
+    "description": "",
+    "reminder": "none",
+    "exec_mode": "manual",
+    "scope": "yearly",
+    "year": 0,
+    "enabled": true
+  }
+]

@@ -21,6 +21,7 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from uuid import uuid4
 
 # ====== Paths ======
 BASE_DIR  = Path(__file__).parent
@@ -34,6 +35,7 @@ SOPS_DIR.mkdir(parents=True, exist_ok=True)
 TIMELOG_DIR.mkdir(parents=True, exist_ok=True)
 
 # ====== NiceGUI ======
+import sys; sys.dont_write_bytecode = True
 from nicegui import app, ui, run
 from starlette.requests import Request
 
@@ -52,6 +54,172 @@ KIND_COLORS = {
 REPEAT_MODES = ["none", "daily", "weekly", "weekday", "monthly", "yearly", "preheat"]
 EXEC_MODES  = ["auto", "manual"]
 STATUSES     = ["pending", "done", "skipped"]
+
+# ====== Schedules (重复事件模板) ======
+SCHEDULES_FILE = DATA_DIR / "schedules.json"
+
+def read_schedules() -> list[dict]:
+    """Read all schedule templates."""
+    if not SCHEDULES_FILE.exists():
+        return []
+    try:
+        data = json.loads(SCHEDULES_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+        # 防御：如果 JSON 顶层是 dict（格式错误），安全返回空列表
+        return []
+    except (json.JSONDecodeError, OSError):
+        return []
+
+def write_schedules(schedules: list[dict]) -> None:
+    """Write schedule templates."""
+    SCHEDULES_FILE.write_text(json.dumps(schedules, ensure_ascii=False, indent=2), encoding="utf-8")
+
+def get_special_days(year: int) -> dict:
+    """Get all special days for a given year.
+    Returns dict with keys: shopping_festivals, holidays, custom_holidays
+    Each is a list of dicts with name, date (YYYY-MM-DD), type
+    """
+    result = {
+        "shopping_festivals": [],
+        "holidays": [],
+        "custom_holidays": []
+    }
+    
+    # Shopping festivals (assume same dates each year)
+    for name, start_mmdd, end_mmdd in SHOPPING_FESTIVALS_2025:
+        sm, sd = int(start_mmdd[:2]), int(start_mmdd[3:])
+        try:
+            fest_date = date(year, sm, sd)
+            result["shopping_festivals"].append({
+                "name": name,
+                "date": fest_date.isoformat(),
+                "type": "shopping_festival",
+                "mmdd": start_mmdd
+            })
+        except ValueError:
+            pass
+    
+    # Holidays (from API)
+    holiday_data = fetch_holidays(year)
+    if holiday_data and "holidays" in holiday_data:
+        for h in holiday_data["holidays"]:
+            h_date_str = h.get("date", "")
+            if h_date_str:
+                result["holidays"].append({
+                    "name": h.get("name", "节假日"),
+                    "date": h_date_str,
+                    "type": "holiday"
+                })
+    
+    # Custom holidays
+    custom_file = DATA_DIR / "custom_holidays.json"
+    if custom_file.exists():
+        try:
+            with open(custom_file, "r", encoding="utf-8") as f:
+                custom_holidays = json.load(f)
+            for h in custom_holidays:
+                h_date_str = h.get("date", "")
+                if h_date_str:
+                    result["custom_holidays"].append({
+                        "name": h.get("name", "自定义节假日"),
+                        "date": h_date_str,
+                        "type": "custom_holiday"
+                    })
+        except Exception:
+            pass
+    
+    return result
+
+def expand_preheat_schedules(start: date, end: date) -> list[dict]:
+    """Expand preheat schedules into events for the given date range."""
+    events = []
+    schedules = read_schedules()
+    
+    for schedule in schedules:
+        if not schedule.get("enabled", True):
+            continue
+        if schedule.get("repeat_mode") != "preheat":
+            continue
+        
+        target_type = schedule.get("target_type", "")
+        target_mmdd = schedule.get("target_date", "")  # MM-DD format
+        preheat_days = schedule.get("preheat_days", 7)
+        scope = schedule.get("scope", "yearly")  # yearly or once
+        schedule_year = schedule.get("year", 0)
+        
+        if not target_mmdd:
+            continue
+        
+        # Parse target date
+        try:
+            tm, td = int(target_mmdd[:2]), int(target_mmdd[3:])
+        except (ValueError, IndexError):
+            continue
+        
+        # For "once" scope, only generate for the specified year
+        if scope == "once":
+            if start.year != schedule_year and end.year != schedule_year:
+                continue
+            try:
+                target_date = date(schedule_year, tm, td)
+            except ValueError:
+                continue
+        else:
+            # Yearly: generate for each year in the range
+            target_date = None
+            for yr in range(start.year, end.year + 1):
+                try:
+                    d = date(yr, tm, td)
+                    if start <= d <= end:
+                        target_date = d
+                        break
+                except ValueError:
+                    continue
+            if target_date is None:
+                continue
+        
+        # Calculate preheat date
+        if scope == "once":
+            years_to_check = [schedule_year]
+        else:
+            years_to_check = range(start.year, end.year + 1)
+        
+        for yr in years_to_check:
+            try:
+                target_date = date(yr, tm, td)
+                preheat_date = target_date - timedelta(days=preheat_days)
+                
+                if start <= preheat_date <= end:
+                    # Generate event
+                    start_time = schedule.get("start_time", "09:00")
+                    duration = schedule.get("duration_minutes", 60)
+                    sh, sm = int(start_time[:2]), int(start_time[3:])
+                    end_dt = datetime.combine(preheat_date, datetime.min.time().replace(hour=sh, minute=sm)) + timedelta(minutes=duration)
+                    
+                    event = {
+                        "id": f"preheat-{schedule['id']}-{preheat_date.isoformat()}",
+                        "start": preheat_date.isoformat() + f"T{start_time}:00",
+                        "end": end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                        "text": schedule.get("title", "预热事件"),
+                        "backColor": "#FF5722",
+                        "barColor": "#D84315",
+                        "kind": schedule.get("kind", "reminder"),
+                        "description": schedule.get("description", ""),
+                        "reminder": schedule.get("reminder", "none"),
+                        "exec_mode": schedule.get("exec_mode", "manual"),
+                        "status": "pending",
+                        "locked": False,
+                        "schedule_id": schedule["id"],
+                        "preheat": True,
+                        "target_date": target_date.isoformat(),
+                        "target_name": schedule.get("target_name", ""),
+                    }
+                    events.append(event)
+            except ValueError:
+                continue
+    
+    return events
 
 
 # ====== Data Layer ======
@@ -284,11 +452,8 @@ def generate_overlay_events(start: date, end: date) -> list[dict]:
     overlay_events = []
     year = start.year
 
-    # 1. 节气 — 准确日期的全天事件（目前只有 2025 年数据，其他年份跳过）
-    if year != 2025:
-        solar_terms = []  # 暂无其他年份数据，跳过
-    else:
-        solar_terms = SOLAR_TERMS_2025
+    # 1. 节气 — 节气日期每年基本固定（±1-2天），直接用2025年数据
+    solar_terms = SOLAR_TERMS_2025
     for name, mmdd in solar_terms:
         m, d = int(mmdd[:2]), int(mmdd[3:])
         try:
@@ -307,11 +472,8 @@ def generate_overlay_events(start: date, end: date) -> list[dict]:
         except ValueError:
             pass
 
-    # 2. 购物节 — 日期范围内每天全天事件（目前只有 2025 年数据，其他年份跳过）
-    if year != 2025:
-        shopping_fests = []
-    else:
-        shopping_fests = SHOPPING_FESTIVALS_2025
+    # 2. 购物节 — 购物节日期每年固定，直接用2025年数据
+    shopping_fests = SHOPPING_FESTIVALS_2025
     for name, start_mmdd, end_mmdd in shopping_fests:
         sm, sd = int(start_mmdd[:2]), int(start_mmdd[3:])
         em, ed = int(end_mmdd[:2]), int(end_mmdd[3:])
@@ -358,14 +520,13 @@ def generate_overlay_events(start: date, end: date) -> list[dict]:
             except (ValueError, TypeError):
                 pass
 
-    # 4. 学期 — 开学第一天全天事件（目前只有 2025 年数据，其他年份跳过）
-    if year != 2025:
-        semesters = []
-    else:
-        semesters = SEMESTER_RANGES
+    # 4. 学期 — 开学第一天全天事件（直接用 2025 年数据）
+    semesters = SEMESTER_RANGES
     for name, start_mmdd, end_mmdd in semesters:
-        sm, sd = int(start_mmdd[:2]), int(start_mmdd[3:])
-        em, ed = int(end_mmdd[:2]), int(end_mmdd[3:])
+        sm = int(start_mmdd[:2])
+        sd = int(start_mmdd[3:])
+        em = int(end_mmdd[:2])
+        ed = int(end_mmdd[3:])
         try:
             sem_start = date(year, sm, sd)
             if start <= sem_start <= end:
@@ -381,6 +542,35 @@ def generate_overlay_events(start: date, end: date) -> list[dict]:
                 })
         except ValueError:
             pass
+
+    # 5. 自定义节假日 — 从 data/custom_holidays.json 读取
+    try:
+        custom_file = DATA_DIR / "custom_holidays.json"
+        if custom_file.exists():
+            with open(custom_file, "r", encoding="utf-8") as f:
+                custom_holidays = json.load(f)
+            for h in custom_holidays:
+                h_date_str = h.get("date", "")
+                h_name = h.get("name", "自定义节假日")
+                if not h_date_str:
+                    continue
+                try:
+                    h_date = date.fromisoformat(h_date_str)
+                    if start <= h_date <= end:
+                        overlay_events.append({
+                            "id": f"overlay-custom-{h_date_str}",
+                            "start": h_date_str + "T00:00:00",
+                            "end": h_date_str + "T23:59:59",
+                            "text": f"⭐{h_name}",
+                            "backColor": "#00BCD4",
+                            "barColor": "#0097A7",
+                            "kind": "overlay-custom",
+                            "readonly": True,
+                        })
+                except (ValueError, TypeError):
+                    pass
+    except Exception:
+        pass
 
     return overlay_events
 
@@ -471,17 +661,16 @@ def index():
         <button onclick="navWeek(-1)">← 上周</button>
         <button onclick="navToday()">今天</button>
         <button onclick="navWeek(1)">下周 →</button>
-        <button onclick="switchView()">月视图</button>
         <button onclick="showSettings()" style="margin-left:auto;">设置</button>
         <button onclick="window.open('/audit', '_self')">审计</button>
-    </div>""")
+    </div>""", sanitize=False)
 
     # ---- Calendar container ----
     ui.html('<div id="calendar"></div>')
 
     # ---- Empty guide ----
     ui.html("""
-    <div id="empty-guide" class="empty-guide">
+    <div id="empty-guide" class="empty-guide" style="display:block !important;">
         <div class="icon">&#128197;</div>
         <div class="title">空空如也，等待你的第一个计划</div>
         <div class="hint">
@@ -495,7 +684,7 @@ def index():
 
     # ---- DayPilot init ----
 
-    ui.add_body_html('<script src="/static/init.js"></script>')
+    ui.add_body_html(f'<script src="/static/init.js?v={int(__import__("time").time())}"></script>')
 
 
 # ====== API Routes ======
@@ -507,17 +696,18 @@ async def api_create_event(request: Request):
         data = await request.json()
         day = date.fromisoformat(data["start"][:10])
         events = read_day(day)
-        import uuid
-        new_id = str(uuid.uuid4())
+        new_id = str(uuid4())
         event = {
-            "id":        new_id,
-            "text":      data.get("text", ""),
-            "start":     data["start"],
-            "end":       data["end"],
-            "kind":      data.get("kind", "reminder"),
-            "exec_mode": data.get("exec_mode", "manual"),
-            "status":    "pending",
-            "locked":    False,
+            "id":          new_id,
+            "text":        data.get("text", ""),
+            "start":       data["start"],
+            "end":         data["end"],
+            "kind":        data.get("kind", "reminder"),
+            "description": data.get("description", ""),
+            "reminder":    data.get("reminder", "none"),
+            "exec_mode":   data.get("exec_mode", "manual"),
+            "status":      "pending",
+            "locked":      False,
         }
         events.append(event)
         write_day(day, events)
@@ -541,6 +731,10 @@ async def api_update_event(request: Request):
                     ev["kind"] = data["kind"]
                 if "exec_mode" in data:
                     ev["exec_mode"] = data["exec_mode"]
+                if "description" in data:
+                    ev["description"] = data["description"]
+                if "reminder" in data:
+                    ev["reminder"] = data["reminder"]
                 break
         write_day(day, events)
         return {"ok": True}
@@ -559,19 +753,11 @@ async def api_list_events(request: Request):
         start = date.fromisoformat(start_str)
         end   = date.fromisoformat(end_str)
         events = all_events_in_range(start, end)
-        # Attach holiday/solar-term overlays
-        for ev in events:
-            d = date.fromisoformat(ev["start"][:10])
-            ev["overlays"] = (
-                get_solar_term_overlays(d)
-                + get_shopping_festival_overlays(d)
-                + get_semester_overlays(d)
-            )
-        # Generate overlay events (holidays, solar terms, etc.)
-        overlay_events = generate_overlay_events(start, end)
-        events.extend(overlay_events)
+        # Expand preheat schedules
+        preheat_events = expand_preheat_schedules(start, end)
+        events.extend(preheat_events)
         return events
-    except Exception as e:
+    except Exception:
         return []
 
 
@@ -648,6 +834,105 @@ async def api_lock_event(request: Request):
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/cell-backgrounds")
+async def api_cell_backgrounds(request: Request):
+    """Return special dates as cell background colors (not events).
+    Returns {dates: {"YYYY-MM-DD": {color, text, type}, ...}}
+    """
+    try:
+        start_str = request.query_params.get("start", "")
+        end_str   = request.query_params.get("end", "")
+        if not start_str or not end_str:
+            return {"dates": {}}
+        start = date.fromisoformat(start_str)
+        end   = date.fromisoformat(end_str)
+        year  = start.year
+        dates = {}
+
+        # 1. 节气
+        for name, mmdd in SOLAR_TERMS_2025:
+            m, d = int(mmdd[:2]), int(mmdd[3:])
+            try:
+                term_date = date(year, m, d)
+                if start <= term_date <= end:
+                    ds = term_date.isoformat()
+                    dates[ds] = {"color": "#FFE0B2", "text": f"\U0001F33F {name}", "type": "solar"}
+            except ValueError:
+                pass
+
+        # 2. 购物节
+        for name, start_mmdd, end_mmdd in SHOPPING_FESTIVALS_2025:
+            sm, sd = int(start_mmdd[:2]), int(start_mmdd[3:])
+            em, ed = int(end_mmdd[:2]), int(end_mmdd[3:])
+            try:
+                fest_start = date(year, sm, sd)
+                fest_end   = date(year, em, ed)
+                d = max(fest_start, start)
+                while d <= fest_end and d <= end:
+                    ds = d.isoformat()
+                    if ds not in dates:
+                        dates[ds] = {"color": "#FCE4EC", "text": f"\U0001F6D2 {name}", "type": "fest"}
+                    d += timedelta(days=1)
+            except ValueError:
+                pass
+
+        # 3. 法定节假日
+        holiday_data = fetch_holidays(year)
+        if holiday_data and "holidays" in holiday_data:
+            for h in holiday_data["holidays"]:
+                h_date_str = h.get("date", "")
+                if not h_date_str:
+                    continue
+                try:
+                    h_date = date.fromisoformat(h_date_str)
+                    if start <= h_date <= end:
+                        dates[h_date_str] = {"color": "#FFCDD2", "text": f"\U0001F38C {h.get('name', '节假日')}", "type": "holiday"}
+                except (ValueError, TypeError):
+                    pass
+
+        # 4. 学期 (wider range, show as subtle backgrounds)
+        for name, start_mmdd, end_mmdd in SEMESTER_RANGES:
+            sm, sd = int(start_mmdd[:2]), int(start_mmdd[3:])
+            em, ed = int(end_mmdd[:2]), int(end_mmdd[3:])
+            d = start
+            while d <= end:
+                try:
+                    sem_start = date(d.year, sm, sd)
+                    sem_end   = date(d.year, em, ed)
+                except ValueError:
+                    d += timedelta(days=1)
+                    continue
+                if sem_start <= d <= sem_end:
+                    ds = d.isoformat()
+                    if ds not in dates:
+                        dates[ds] = {"color": "#F3E5F5", "text": f"\U0001F4DA {name}", "type": "sem"}
+                d += timedelta(days=1)
+
+        # 5. 自定义节假日
+        custom_file = DATA_DIR / "custom_holidays.json"
+        if custom_file.exists():
+            try:
+                with open(custom_file, "r", encoding="utf-8") as f:
+                    custom_holidays = json.load(f)
+                for h in custom_holidays:
+                    h_date_str = h.get("date", "")
+                    h_name = h.get("name", "自定义节假日")
+                    if not h_date_str:
+                        continue
+                    try:
+                        h_date = date.fromisoformat(h_date_str)
+                        if start <= h_date <= end:
+                            dates[h_date_str] = {"color": "#E8EAF6", "text": f"\U0001F4C5 {h_name}", "type": "custom"}
+                    except (ValueError, TypeError):
+                        pass
+            except Exception:
+                pass
+
+        return {"dates": dates}
+    except Exception:
+        return {"dates": {}}
+
+
 @app.post("/api/timelog/write")
 async def api_write_timelog(request: Request):
     """Write a timelog entry."""
@@ -692,6 +977,180 @@ async def api_timelog_report(request: Request):
         stats["entries_count"] = len(entries)
         
         return {"ok": True, "stats": stats, "entries": entries}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# ---- Custom holidays API (top-level) ----
+CUSTOM_HOLIDAYS_FILE = DATA_DIR / "custom_holidays.json"
+
+@app.get("/api/custom-holidays")
+async def api_list_custom_holidays():
+    """List all custom holidays."""
+    try:
+        if CUSTOM_HOLIDAYS_FILE.exists():
+            with open(CUSTOM_HOLIDAYS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return {"ok": True, "holidays": data}
+        return {"ok": True, "holidays": []}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.post("/api/custom-holidays")
+async def api_add_custom_holiday(request: Request):
+    """Add a custom holiday."""
+    try:
+        data = await request.json()
+        name = data.get("name", "").strip()
+        date_str = data.get("date", "").strip()
+        if not name or not date_str:
+            return {"ok": False, "error": "名称和日期不能为空"}
+        # Validate date
+        from datetime import datetime as dt
+        dt.strptime(date_str, "%Y-%m-%d")
+        holidays = []
+        if CUSTOM_HOLIDAYS_FILE.exists():
+            with open(CUSTOM_HOLIDAYS_FILE, "r", encoding="utf-8") as f:
+                holidays = json.load(f)
+        holidays.append({"name": name, "date": date_str})
+        with open(CUSTOM_HOLIDAYS_FILE, "w", encoding="utf-8") as f:
+            json.dump(holidays, f, ensure_ascii=False, indent=2)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.delete("/api/custom-holidays")
+async def api_delete_custom_holiday(request: Request):
+    """Delete a custom holiday by name and date."""
+    try:
+        data = await request.json()
+        name = data.get("name", "")
+        date_str = data.get("date", "")
+        if not name or not date_str:
+            return {"ok": False, "error": "参数不完整"}
+        holidays = []
+        if CUSTOM_HOLIDAYS_FILE.exists():
+            with open(CUSTOM_HOLIDAYS_FILE, "r", encoding="utf-8") as f:
+                holidays = json.load(f)
+        holidays = [h for h in holidays if not (h["name"] == name and h["date"] == date_str)]
+        with open(CUSTOM_HOLIDAYS_FILE, "w", encoding="utf-8") as f:
+            json.dump(holidays, f, ensure_ascii=False, indent=2)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# ====== Schedules API (重复事件模板) ======
+
+@app.get("/api/schedules")
+async def api_list_schedules():
+    """List all schedule templates."""
+    try:
+        schedules = read_schedules()
+        return {"ok": True, "schedules": schedules}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.post("/api/schedules")
+async def api_create_schedule(request: Request):
+    """Create a new schedule template."""
+    try:
+        data = await request.json()
+        schedules = read_schedules()
+        new_id = f"schedule-{uuid4().hex[:8]}"
+        schedule = {
+            "id": new_id,
+            "title": data.get("title", ""),
+            "repeat_mode": data.get("repeat_mode", "preheat"),
+            "target_type": data.get("target_type", ""),
+            "target_id": data.get("target_id", ""),
+            "target_date": data.get("target_date", ""),
+            "target_name": data.get("target_name", ""),
+            "preheat_days": data.get("preheat_days", 7),
+            "start_time": data.get("start_time", "09:00"),
+            "duration_minutes": data.get("duration_minutes", 60),
+            "kind": data.get("kind", "reminder"),
+            "sop_page": data.get("sop_page", ""),
+            "description": data.get("description", ""),
+            "reminder": data.get("reminder", "none"),
+            "exec_mode": data.get("exec_mode", "manual"),
+            "scope": data.get("scope", "yearly"),
+            "year": data.get("year", 0),
+            "enabled": True,
+        }
+        schedules.append(schedule)
+        write_schedules(schedules)
+        return {"ok": True, "id": new_id, "schedule": schedule}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.put("/api/schedules/{schedule_id}")
+async def api_update_schedule(schedule_id: str, request: Request):
+    """Update a schedule template."""
+    try:
+        data = await request.json()
+        schedules = read_schedules()
+        for sch in schedules:
+            if sch["id"] == schedule_id:
+                if "title" in data:
+                    sch["title"] = data["title"]
+                if "repeat_mode" in data:
+                    sch["repeat_mode"] = data["repeat_mode"]
+                if "target_type" in data:
+                    sch["target_type"] = data["target_type"]
+                if "target_id" in data:
+                    sch["target_id"] = data["target_id"]
+                if "target_date" in data:
+                    sch["target_date"] = data["target_date"]
+                if "target_name" in data:
+                    sch["target_name"] = data["target_name"]
+                if "preheat_days" in data:
+                    sch["preheat_days"] = data["preheat_days"]
+                if "start_time" in data:
+                    sch["start_time"] = data["start_time"]
+                if "duration_minutes" in data:
+                    sch["duration_minutes"] = data["duration_minutes"]
+                if "kind" in data:
+                    sch["kind"] = data["kind"]
+                if "sop_page" in data:
+                    sch["sop_page"] = data["sop_page"]
+                if "description" in data:
+                    sch["description"] = data["description"]
+                if "reminder" in data:
+                    sch["reminder"] = data["reminder"]
+                if "exec_mode" in data:
+                    sch["exec_mode"] = data["exec_mode"]
+                if "scope" in data:
+                    sch["scope"] = data["scope"]
+                if "year" in data:
+                    sch["year"] = data["year"]
+                if "enabled" in data:
+                    sch["enabled"] = data["enabled"]
+                break
+        write_schedules(schedules)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.delete("/api/schedules/{schedule_id}")
+async def api_delete_schedule(schedule_id: str):
+    """Delete a schedule template."""
+    try:
+        schedules = read_schedules()
+        schedules = [s for s in schedules if s["id"] != schedule_id]
+        write_schedules(schedules)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.get("/api/special-days")
+async def api_list_special_days(request: Request):
+    """List all special days (shopping festivals, holidays, custom holidays) for a year."""
+    try:
+        year_str = request.query_params.get("year", str(date.today().year))
+        year = int(year_str)
+        special_days = get_special_days(year)
+        return {"ok": True, "special_days": special_days}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -803,7 +1262,7 @@ def sop_page(sop_id: str):
                     if step.get("exec_mode") == "manual" and step.get("est_min", 0) > 0:
                         # Use HTML button with JS handler for timer
                         btn_html = f'<button data-timer-btn="1" data-step-name="{step["name"]}" onclick="window.handleTimerClick(this, \'{step["name"]}\', \'{sop_id}\', \'{sop["name"]}\')" style="padding:8px 16px;background:#e94560;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;">开始计时</button>'
-                        ui.html(btn_html)
+                        ui.html(btn_html, sanitize=False)
     
     # Add global JS handler for timer buttons
     handler_js = """
@@ -974,7 +1433,7 @@ app.on_shutdown(on_shutdown)
 # ====== Main ======
 if __name__ in {"__main__", "__mp_main__"}:
     ui.run(
-        title      = "凝华 · Rubedo",
+        title      = "凝华 v0704-fix7",
         native     = True,
         window_size = (1400, 900),
         port       = 8081,

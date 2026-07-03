@@ -7,6 +7,11 @@
 ## [Unreleased]
 
 ### Added
+- **A3 事件锁定 UI**：事件详情对话框新增"锁定/解锁"按钮，锁定后事件不可被重复事件展开覆盖
+- **A4 重复事件管理 UI**：设置对话框新增"重复事件模板"列表，支持启用/禁用/删除模板
+- **预热重复事件（Preheat）**：新增 `preheat` 重复模式——在购物节/法定节假日/自定义节假日前 N 天自动生成事件，支持"每年"或"仅今年"范围
+- **特殊日子管理**：`/api/special-days?year=YYYY` 端点返回购物节、法定节假日、自定义节假日；设置页面支持添加/删除自定义节假日
+- **创建事件字段完善**：新增日期/时间选择器（`datetime-local`）、备注（`textarea`）、提醒时间选择（事件开始时/提前15分钟/提前30分钟/提前1小时）
 - **A2 SOP 计时器**：SOP 页面"开始计时"按钮真正记录时间（客户端 JS 计时，写入 `data/timelog/`）
 - **A1 时间审计页面**：新增 `/audit` 页面，显示时薪、总收入、按 SOP 统计
 - **T4 SOP 事件引导**：创建 SOP 事件后弹窗引导打开 SOP 流程页
@@ -16,10 +21,21 @@
 
 ### Changed
 - **T1 编辑对话框**：替换浏览器原生 `prompt()` 为自定义美观对话框，支持标题+分类编辑
-- **T5 节假日数据**：启动时后台自动获取当年法定节假日数据（timor.peanut API），存本地缓存
+- **T5 节假日数据**：启动时后台自动获取当年法定节假日数据（timor.peanut API），存本地缓存；支持任意年份查询
+- **重复事件数据层**：`data/schedules.json` 存储重复事件模板，`expand_preheat_schedules()` 在 `/api/events` 中运行时展开
 
 ### Fixed
+- **节假日背景色不显示/错位**：6 个叠加 bug 逐个根因修复
+  - `loadEvents()` 用 `dp.visibleStart()` 取日期范围，DayPilot 状态未更新返回旧周 → 改用 `currentStart`（dayjs 同步变量）
+  - `dayjs().startOf("isoWeek")` 未加载 isoWeek 插件静默返回当前时刻 → 改纯数学算周一
+  - `args.cell.start.toDate()` 在 UTC+8 跨天（16:00 后跳到下一天）→ 改用 `.value.slice(0,10)` 直接取 UTC 日期
+  - 学期范围判断只比月份不比日期（`sm <= month <= em`）→ 改精确日期比较 `date(y,sm,sd) <= d <= date(y,em,ed)`
+  - DayPilot 默认 `weekStarts=0`（周日开始），`locale:"zh-cn"` 不覆盖 → 显式加 `weekStarts:1`
+  - `loadEvents` 日期范围 `add(7,"day")` 多算一天 → 改 `add(6,"day")` 闭区间
+- **节日标题不显示**：新增 `onBeforeHeaderRender` 回调，列头格式 `周X M/D 节日文字`（如"周一 7/7 🌿小暑"）
 - `generate_overlay_events()` 年份判断错误（非 2025 年数据错误显示）
+- `ui.html()` 默认 `sanitize=True` 剥离 `onclick` 属性，导致所有按钮无响应（修复：加 `sanitize=False`）
+- 购物节数据硬编码 2025 年（修复：改为按 MM-DD 动态计算任意年份）
 
 ## [v0.3.0] — 2026-06-28
 

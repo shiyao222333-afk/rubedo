@@ -1,0 +1,14 @@
+[
+  {
+    "id": "3f08acc1-b150-46d3-aaff-1f4e33a0754c",
+    "text": "⏰ 1",
+    "start": "2026-06-30T00:30:00",
+    "end": "2026-06-30T01:00:00",
+    "kind": "reminder",
+    "description": "",
+    "reminder": "none",
+    "exec_mode": "manual",
+    "status": "pending",
+    "locked": false
+  }
+]
