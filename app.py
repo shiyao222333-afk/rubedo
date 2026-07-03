@@ -204,6 +204,112 @@ def get_semester_overlays(target_date: date) -> list[str]:
     return overlays
 
 
+def generate_overlay_events(start: date, end: date) -> list[dict]:
+    """生成只读叠加层事件（节气/购物节/法定节假日/学期）"""
+    overlay_events = []
+    year = start.year
+
+    # 1. 节气 — 准确日期的全天事件（目前只有 2025 年数据，其他年份跳过）
+    if year != 2025:
+        solar_terms = []  # 暂无其他年份数据，跳过
+    else:
+        solar_terms = SOLAR_TERMS_2025
+    for name, mmdd in solar_terms:
+        m, d = int(mmdd[:2]), int(mmdd[3:])
+        try:
+            term_date = date(year, m, d)
+            if start <= term_date <= end:
+                overlay_events.append({
+                    "id": f"overlay-solar-{term_date.isoformat()}",
+                    "start": term_date.isoformat() + "T00:00:00",
+                    "end": term_date.isoformat() + "T23:59:59",
+                    "text": f"🌿{name}",
+                    "backColor": "#FF9800",
+                    "barColor": "#F57C00",
+                    "kind": "overlay-solar",
+                    "readonly": True,
+                })
+        except ValueError:
+            pass
+
+    # 2. 购物节 — 日期范围内每天全天事件（目前只有 2025 年数据，其他年份跳过）
+    if year != 2025:
+        shopping_fests = []
+    else:
+        shopping_fests = SHOPPING_FESTIVALS_2025
+    for name, start_mmdd, end_mmdd in shopping_fests:
+        sm, sd = int(start_mmdd[:2]), int(start_mmdd[3:])
+        em, ed = int(end_mmdd[:2]), int(end_mmdd[3:])
+        try:
+            fest_start = date(year, sm, sd)
+            fest_end = date(year, em, ed)
+            d = fest_start
+            while d <= fest_end and d <= end:
+                if d >= start:
+                    overlay_events.append({
+                        "id": f"overlay-fest-{name}-{d.isoformat()}",
+                        "start": d.isoformat() + "T00:00:00",
+                        "end": d.isoformat() + "T23:59:59",
+                        "text": f"🛒{name}",
+                        "backColor": "#E91E63",
+                        "barColor": "#C2185B",
+                        "kind": "overlay-fest",
+                        "readonly": True,
+                    })
+                d += timedelta(days=1)
+        except ValueError:
+            pass
+
+    # 3. 法定节假日 — 从 holidays_YYYY.json
+    holiday_data = fetch_holidays(year)
+    if holiday_data and "holidays" in holiday_data:
+        for h in holiday_data["holidays"]:
+            h_date_str = h.get("date", "")
+            if not h_date_str:
+                continue
+            try:
+                h_date = date.fromisoformat(h_date_str)
+                if start <= h_date <= end:
+                    overlay_events.append({
+                        "id": f"overlay-holiday-{h_date_str}",
+                        "start": h_date_str + "T00:00:00",
+                        "end": h_date_str + "T23:59:59",
+                        "text": f"🎌{h.get('name', '节假日')}",
+                        "backColor": "#F44336",
+                        "barColor": "#D32F2F",
+                        "kind": "overlay-holiday",
+                        "readonly": True,
+                    })
+            except (ValueError, TypeError):
+                pass
+
+    # 4. 学期 — 开学第一天全天事件（目前只有 2025 年数据，其他年份跳过）
+    if year != 2025:
+        semesters = []
+    else:
+        semesters = SEMESTER_RANGES
+    for name, start_mmdd, end_mmdd in semesters:
+        sm, sd = int(start_mmdd[:2]), int(start_mmdd[3:])
+        em, ed = int(end_mmdd[:2]), int(end_mmdd[3:])
+        try:
+            sem_start = date(year, sm, sd)
+            if start <= sem_start <= end:
+                overlay_events.append({
+                    "id": f"overlay-sem-{name}-{sem_start.isoformat()}",
+                    "start": sem_start.isoformat() + "T00:00:00",
+                    "end": sem_start.isoformat() + "T23:59:59",
+                    "text": f"📚{name}",
+                    "backColor": "#9C27B0",
+                    "barColor": "#7B1FA2",
+                    "kind": "overlay-sem",
+                    "readonly": True,
+                })
+        except ValueError:
+            pass
+
+    return overlay_events
+
+
 # ====== APScheduler ======
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -291,6 +397,7 @@ def index():
         <button onclick="navToday()">今天</button>
         <button onclick="navWeek(1)">下周 →</button>
         <button onclick="switchView()">月视图</button>
+        <button onclick="showSettings()" style="margin-left:auto;">设置</button>
     </div>""")
 
     # ---- Calendar container ----
@@ -384,6 +491,9 @@ async def api_list_events(request: Request):
                 + get_shopping_festival_overlays(d)
                 + get_semester_overlays(d)
             )
+        # Generate overlay events (holidays, solar terms, etc.)
+        overlay_events = generate_overlay_events(start, end)
+        events.extend(overlay_events)
         return events
     except Exception as e:
         return []
@@ -508,6 +618,23 @@ def on_startup():
     if not scheduler.running:
         scheduler.start()
         print("[Rubedo] APScheduler 已启动 (SQLite 持久化)")
+
+    # 后台获取节假日数据（不阻塞启动）
+    import threading
+    def _fetch_holidays_bg():
+        try:
+            from datetime import datetime
+            current_year = datetime.now().year
+            data = fetch_holidays(current_year)
+            if data:
+                print(f"[Rubedo] 节假日数据已获取 ({current_year}年)")
+            else:
+                print(f"[Rubedo] 节假日数据获取失败 ({current_year}年)")
+        except Exception as e:
+            print(f"[Rubedo] 节假日数据获取异常: {e}")
+
+    t = threading.Thread(target=_fetch_holidays_bg, daemon=True)
+    t.start()
 
 
 def on_shutdown():

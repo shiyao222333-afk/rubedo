@@ -74,7 +74,18 @@
             fetch("/api/events?start=" + s + "&end=" + e)
                 .then(r => r.json())
                 .then(events => {
-                    dp.events.list = events;
+                    // 根据设置过滤叠加层事件
+                    var settings = localStorage.getItem('rubedo-overlays');
+                    if (!settings) settings = '{"solar":true,"fest":true,"holiday":true,"sem":true}';
+                    try { settings = JSON.parse(settings); } catch(e) { settings = {"solar":true,"fest":true,"holiday":true,"sem":true}; }
+                    var filteredEvents = events.filter(function(ev) {
+                        if (ev.kind === 'overlay-solar' && !settings.solar) return false;
+                        if (ev.kind === 'overlay-fest' && !settings.fest) return false;
+                        if (ev.kind === 'overlay-holiday' && !settings.holiday) return false;
+                        if (ev.kind === 'overlay-sem' && !settings.sem) return false;
+                        return true;
+                    });
+                    dp.events.list = filteredEvents;
                     dp.update();
                     const userEvents = events.filter(function(ev) {
                         return ev.kind !== "marker" || (ev.id && ev.id.startsWith("marker-user-"));
@@ -152,6 +163,71 @@
             });
         }
 
+        // ---- Edit dialog (replaces prompt()) ----
+        function showEditDialog(ev) {
+            var existing = document.getElementById("dlg-overlay-edit");
+            if (existing) existing.remove();
+
+            var overlay = document.createElement("div");
+            overlay.id = "dlg-overlay-edit";
+            overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;";
+
+            var html = '';
+            html += '<div style="background:#16213e;color:#eee;padding:28px;border-radius:14px;min-width:340px;max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,0.5);font-family:Microsoft YaHei,PingFang SC,sans-serif;">';
+            html +=   '<div style="font-size:18px;font-weight:bold;color:#2196F3;margin-bottom:18px;">编辑事项</div>';
+
+            html +=   '<div style="margin-bottom:14px;">';
+            html +=     '<div style="font-size:13px;color:#aaa;margin-bottom:5px;">标题</div>';
+            html +=     '<input id="dlg-edit-title" type="text" value="' + escapeHtml(ev.text) + '" style="width:100%;padding:9px 12px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:14px;box-sizing:border-box;">';
+            html +=   '</div>';
+
+            html +=   '<div style="margin-bottom:18px;">';
+            html +=     '<div style="font-size:13px;color:#aaa;margin-bottom:5px;">分类</div>';
+            html +=     '<select id="dlg-edit-kind" style="width:100%;padding:9px 12px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:14px;">';
+            html +=       '<option value="reminder"' + (ev.kind === 'reminder' ? ' selected' : '') + '>提醒</option>';
+            html +=       '<option value="sop"' + (ev.kind === 'sop' ? ' selected' : '') + '>酷家乐SOP</option>';
+            html +=       '<option value="tool"' + (ev.kind === 'tool' ? ' selected' : '') + '>工具</option>';
+            html +=       '<option value="external"' + (ev.kind === 'external' ? ' selected' : '') + '>外部事件</option>';
+            html +=       '<option value="marker"' + (ev.kind === 'marker' ? ' selected' : '') + '>标记日</option>';
+            html +=     '</select>';
+            html +=   '</div>';
+
+            html +=   '<div style="display:flex;gap:10px;justify-content:flex-end;">';
+            html +=     '<button id="dlg-edit-cancel" style="padding:8px 20px;background:transparent;color:#aaa;border:1px solid #444;border-radius:8px;cursor:pointer;font-size:14px;">取消</button>';
+            html +=     '<button id="dlg-edit-ok" style="padding:8px 20px;background:#2196F3;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold;">保存</button>';
+            html +=   '</div>';
+            html += '</div>';
+
+            overlay.innerHTML = html;
+            document.body.appendChild(overlay);
+            setTimeout(function() {
+                var input = document.getElementById("dlg-edit-title");
+                if (input) input.focus();
+            }, 80);
+
+            overlay.addEventListener("click", function(e) {
+                if (e.target === overlay) overlay.remove();
+            });
+            document.getElementById("dlg-edit-cancel").addEventListener("click", function() {
+                overlay.remove();
+            });
+            document.getElementById("dlg-edit-ok").addEventListener("click", function() {
+                var titleInput = document.getElementById("dlg-edit-title");
+                var kindSelect = document.getElementById("dlg-edit-kind");
+                var newTitle = titleInput.value.trim();
+                var newKind  = kindSelect.value;
+                if (!newTitle) { alert("请输入标题"); return; }
+                fetch("/api/events/update", {
+                    method: "PUT",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({id: ev.id, day: ev.start.slice(0,10), text: newTitle, kind: newKind})
+                }).then(function(r) { return r.json(); }).then(function(data) {
+                    if (data.ok) { overlay.remove(); loadEvents(); }
+                    else alert("修改失败：" + (data.error || "未知错误"));
+                });
+            });
+        }
+
         // ---- Event detail dialog ----
         function showEventDetailDialog(ev) {
             var existing = document.getElementById("dlg-overlay-detail");
@@ -175,9 +251,13 @@
             html +=   '<div style="font-size:13px;color:#aaa;margin-bottom:4px;">分类：' + kname + '</div>';
             html +=   '<div style="font-size:13px;color:#aaa;margin-bottom:18px;">状态：' + statusStr + '</div>';
             html +=   '<div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">';
-            html +=     '<button id="dlg-detail-mark" style="padding:8px 16px;background:transparent;color:#e94560;border:1px solid #e94560;border-radius:8px;cursor:pointer;font-size:13px;">' + (isDone ? "标记未完成" : "标记完成") + '</button>';
-            html +=     '<button id="dlg-detail-edit" style="padding:8px 16px;background:transparent;color:#2196F3;border:1px solid #2196F3;border-radius:8px;cursor:pointer;font-size:13px;">编辑</button>';
-            html +=     '<button id="dlg-detail-delete" style="padding:8px 16px;background:transparent;color:#F44336;border:1px solid #F44336;border-radius:8px;cursor:pointer;font-size:13px;">删除</button>';
+            if (!ev.readonly) {
+                html +=     '<button id="dlg-detail-mark" style="padding:8px 16px;background:transparent;color:#e94560;border:1px solid #e94560;border-radius:8px;cursor:pointer;font-size:13px;">' + (isDone ? "标记未完成" : "标记完成") + '</button>';
+                html +=     '<button id="dlg-detail-edit" style="padding:8px 16px;background:transparent;color:#2196F3;border:1px solid #2196F3;border-radius:8px;cursor:pointer;font-size:13px;">编辑</button>';
+                html +=     '<button id="dlg-detail-delete" style="padding:8px 16px;background:transparent;color:#F44336;border:1px solid #F44336;border-radius:8px;cursor:pointer;font-size:13px;">删除</button>';
+            } else {
+                html +=     '<span style="font-size:12px;color:#666;padding:8px 16px;">只读事件（节假日/节气）</span>';
+            }
             html +=     '<button id="dlg-detail-close" style="padding:8px 16px;background:#0f3460;color:#eee;border:1px solid #0f3460;border-radius:8px;cursor:pointer;font-size:13px;">关闭</button>';
             html +=   '</div>';
             html += '</div>';
@@ -202,17 +282,8 @@
                 });
             });
             document.getElementById("dlg-detail-edit").addEventListener("click", function() {
-                var newText = prompt("修改标题：", ev.text);
-                if (newText === null) return;
-                var newKind = prompt("修改分类 (sop/tool/reminder/external/marker)：", ev.kind);
-                if (newKind === null) return;
-                fetch("/api/events/update", {
-                    method: "PUT",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({id: ev.id, day: ev.start.slice(0,10), text: newText, kind: newKind})
-                }).then(function(r) { return r.json(); }).then(function(data) {
-                    if (data.ok) { overlay.remove(); loadEvents(); }
-                });
+                overlay.remove();
+                showEditDialog(ev);
             });
             document.getElementById("dlg-detail-delete").addEventListener("click", function() {
                 if (!confirm("确定删除此事件？")) return;
@@ -296,6 +367,79 @@
             div.appendChild(document.createTextNode(text));
             return div.innerHTML;
         }
+
+        // ---- Settings dialog ----
+        window.showSettings = function() {
+            var existing = document.getElementById('dlg-overlay-settings');
+            if (existing) existing.remove();
+
+            var settings = localStorage.getItem('rubedo-overlays');
+            if (!settings) settings = '{"solar":true,"fest":true,"holiday":true,"sem":true}';
+            try { settings = JSON.parse(settings); } catch(e) { settings = {"solar":true,"fest":true,"holiday":true,"sem":true}; }
+
+            var overlay = document.createElement('div');
+            overlay.id = 'dlg-overlay-settings';
+            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;';
+
+            var html = '';
+            html += '<div style="background:#16213e;color:#eee;padding:28px;border-radius:14px;min-width:360px;max-width:440px;box-shadow:0 8px 32px rgba(0,0,0,0.5);font-family:Microsoft YaHei,PingFang SC,sans-serif;">';
+            html +=   '<div style="font-size:18px;font-weight:bold;color:#e94560;margin-bottom:18px;">设置</div>';
+
+            html +=   '<div style="margin-bottom:14px;">';
+            html +=     '<label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 0;">';
+            html +=       '<input type="checkbox" id="settings-solar" ' + (settings.solar ? "checked" : "") + ' style="width:18px;height:18px;">';
+            html +=       '<span style="font-size:14px;">🌿 显示节气</span>';
+            html +=     '</label>';
+            html +=   '</div>';
+
+            html +=   '<div style="margin-bottom:14px;">';
+            html +=     '<label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 0;">';
+            html +=       '<input type="checkbox" id="settings-fest" ' + (settings.fest ? "checked" : "") + ' style="width:18px;height:18px;">';
+            html +=       '<span style="font-size:14px;">🛒 显示购物节</span>';
+            html +=     '</label>';
+            html +=   '</div>';
+
+            html +=   '<div style="margin-bottom:14px;">';
+            html +=     '<label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 0;">';
+            html +=       '<input type="checkbox" id="settings-holiday" ' + (settings.holiday ? "checked" : "") + ' style="width:18px;height:18px;">';
+            html +=       '<span style="font-size:14px;">🎌 显示法定节假日</span>';
+            html +=     '</label>';
+            html +=   '</div>';
+
+            html +=   '<div style="margin-bottom:18px;">';
+            html +=     '<label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 0;">';
+            html +=       '<input type="checkbox" id="settings-sem" ' + (settings.sem ? "checked" : "") + ' style="width:18px;height:18px;">';
+            html +=       '<span style="font-size:14px;">📚 显示学期</span>';
+            html +=     '</label>';
+            html +=   '</div>';
+
+            html +=   '<div style="display:flex;gap:10px;justify-content:flex-end;">';
+            html +=     '<button id="settings-cancel" style="padding:8px 20px;background:transparent;color:#aaa;border:1px solid #444;border-radius:8px;cursor:pointer;font-size:14px;">取消</button>';
+            html +=     '<button id="settings-save" style="padding:8px 20px;background:#e94560;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold;">保存</button>';
+            html +=   '</div>';
+            html += '</div>';
+
+            overlay.innerHTML = html;
+            document.body.appendChild(overlay);
+
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) overlay.remove();
+            });
+            document.getElementById('settings-cancel').addEventListener('click', function() {
+                overlay.remove();
+            });
+            document.getElementById('settings-save').addEventListener('click', function() {
+                var newSettings = {
+                    solar:   document.getElementById('settings-solar').checked,
+                    fest:    document.getElementById('settings-fest').checked,
+                    holiday: document.getElementById('settings-holiday').checked,
+                    sem:     document.getElementById('settings-sem').checked,
+                };
+                localStorage.setItem('rubedo-overlays', JSON.stringify(newSettings));
+                overlay.remove();
+                loadEvents();
+            });
+        };
 
         dp.init();
         loadEvents();
