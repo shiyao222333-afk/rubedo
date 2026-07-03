@@ -157,8 +157,18 @@
                         exec_mode: "manual"
                     })
                 }).then(function(r) { return r.json(); }).then(function(data) {
-                    if (data.ok) { overlay.remove(); loadEvents(); }
-                    else alert("创建失败：" + (data.error || "未知错误"));
+                    if (data.ok) {
+                        overlay.remove();
+                        loadEvents();
+                        // T4: 创建 SOP 事件后引导到 SOP 页面
+                        if (kind === "sop") {
+                            if (confirm("✅ SOP 事件已创建！\n\n是否打开 SOP 流程页？")) {
+                                window.open("/sop/kujiale", "_blank");
+                            }
+                        }
+                    } else {
+                        alert("创建失败：" + (data.error || "未知错误"));
+                    }
                 });
             });
         }
@@ -250,6 +260,12 @@
             html +=   '<div style="font-size:13px;color:#aaa;margin-bottom:4px;">' + dayjs(ev.start).format("YYYY-MM-DD HH:mm") + ' - ' + dayjs(ev.end).format("HH:mm") + '</div>';
             html +=   '<div style="font-size:13px;color:#aaa;margin-bottom:4px;">分类：' + kname + '</div>';
             html +=   '<div style="font-size:13px;color:#aaa;margin-bottom:18px;">状态：' + statusStr + '</div>';
+            // T6: SOP 事件显示"打开 SOP 流程页"按钮
+            if (ev.kind === "sop") {
+                html +=   '<div style="margin-bottom:14px;">';
+                html +=     '<button onclick="window.open(\'/sop/kujiale\', \'_blank\');" style="width:100%;padding:10px;background:#4CAF50;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold;">🚀 打开 SOP 流程页</button>';
+                html +=   '</div>';
+            }
             html +=   '<div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">';
             if (!ev.readonly) {
                 html +=     '<button id="dlg-detail-mark" style="padding:8px 16px;background:transparent;color:#e94560;border:1px solid #e94560;border-radius:8px;cursor:pointer;font-size:13px;">' + (isDone ? "标记未完成" : "标记完成") + '</button>';
