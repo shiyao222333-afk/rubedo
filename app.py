@@ -78,6 +78,81 @@ def write_day(day: date, events: list[dict]) -> None:
     fp.write_text(json.dumps(events, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def timelog_file(day: date) -> Path:
+    """Get the timelog JSON file path for a given date."""
+    return TIMELOG_DIR / f"{day.isoformat()}.json"
+
+
+def read_timelog(day: date) -> list[dict]:
+    """Read timelog entries for a given day."""
+    fp = timelog_file(day)
+    if not fp.exists():
+        return []
+    try:
+        return json.loads(fp.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def write_timelog_entry(entry: dict) -> None:
+    """Append a timelog entry to today's timelog file."""
+    today = date.today()
+    fp = timelog_file(today)
+    entries = read_timelog(today)
+    entries.append(entry)
+    fp.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def all_timelog_in_range(start: date, end: date) -> list[dict]:
+    """Read all timelog entries from start to end (inclusive)."""
+    entries = []
+    d = start
+    while d <= end:
+        entries.extend(read_timelog(d))
+        d += timedelta(days=1)
+    return entries
+
+
+def calc_hourly_rate(timelog_entries: list[dict], events: list[dict]) -> dict:
+    """Calculate hourly rate from timelog and event data.
+    
+    Returns dict with:
+    - total_minutes: total tracked time
+    - total_income: estimated income (from sop events with 'income' field)
+    - hourly_rate: total_income / (total_minutes / 60)
+    - by_sop: dict of sop_id -> {minutes, income, rate}
+    """
+    total_minutes = 0
+    total_income = 0.0
+    by_sop = {}
+    
+    for entry in timelog_entries:
+        minutes = entry.get("duration_min", 0)
+        sop_id = entry.get("sop_id", "unknown")
+        # Estimate income from associated event (if available)
+        income = entry.get("income", 0.0)
+        
+        total_minutes += minutes
+        total_income += income
+        
+        if sop_id not in by_sop:
+            by_sop[sop_id] = {"minutes": 0, "income": 0.0, "count": 0}
+        by_sop[sop_id]["minutes"] += minutes
+        by_sop[sop_id]["income"] += income
+        by_sop[sop_id]["count"] += 1
+    
+    hourly_rate = 0.0
+    if total_minutes > 0:
+        hourly_rate = (total_income / (total_minutes / 60))
+    
+    return {
+        "total_minutes": total_minutes,
+        "total_income": total_income,
+        "hourly_rate": round(hourly_rate, 2),
+        "by_sop": by_sop,
+    }
+
+
 def all_events_in_range(start: date, end: date) -> list[dict]:
     """Read all events from start to end (inclusive)."""
     events = []
@@ -398,6 +473,7 @@ def index():
         <button onclick="navWeek(1)">下周 →</button>
         <button onclick="switchView()">月视图</button>
         <button onclick="showSettings()" style="margin-left:auto;">设置</button>
+        <button onclick="window.open('/audit', '_self')">审计</button>
     </div>""")
 
     # ---- Calendar container ----
@@ -572,7 +648,53 @@ async def api_lock_event(request: Request):
         return {"ok": False, "error": str(e)}
 
 
-# ====== SOP Page ======
+@app.post("/api/timelog/write")
+async def api_write_timelog(request: Request):
+    """Write a timelog entry."""
+    try:
+        data = await request.json()
+        entry = {
+            "id": data.get("id", str(uuid4())),
+            "sop_id": data.get("sop_id", "unknown"),
+            "sop_name": data.get("sop_name", ""),
+            "step_name": data.get("step_name", ""),
+            "start_time": data.get("start_time", ""),
+            "end_time": data.get("end_time", ""),
+            "duration_min": data.get("duration_min", 0),
+            "income": data.get("income", 0.0),
+            "note": data.get("note", ""),
+            "created_at": datetime.now().isoformat(),
+        }
+        write_timelog_entry(entry)
+        return {"ok": True, "entry": entry}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/timelog/report")
+async def api_timelog_report(request: Request):
+    """Generate a time audit report for a date range."""
+    try:
+        start_str = request.query_params.get("start", date.today().replace(day=1).isoformat())
+        end_str = request.query_params.get("end", date.today().isoformat())
+        start = date.fromisoformat(start_str)
+        end = date.fromisoformat(end_str)
+        
+        entries = all_timelog_in_range(start, end)
+        events = all_events_in_range(start, end)
+        
+        # Calculate stats
+        stats = calc_hourly_rate(entries, events)
+        
+        # Add date range info
+        stats["start"] = start_str
+        stats["end"] = end_str
+        stats["entries_count"] = len(entries)
+        
+        return {"ok": True, "stats": stats, "entries": entries}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 
 @ui.page("/sop/{sop_id}")
 def sop_page(sop_id: str):
@@ -582,11 +704,92 @@ def sop_page(sop_id: str):
         ui.label(f"SOP 未找到: {sop_id}")
         return
 
+    # Inject timer JavaScript
+    timer_js = """
+    <script>
+    (function() {
+        let timerStart = null;
+        let timerStep = null;
+        let timerSopId = null;
+        let timerSopName = null;
+        
+        window.startRubedTimer = function(stepName, sopId, sopName) {
+            if (timerStart) {
+                alert("已有计时器在运行！");
+                return;
+            }
+            timerStart = Date.now();
+            timerStep = stepName;
+            timerSopId = sopId;
+            timerSopName = sopName;
+            
+            // Update button states
+            document.querySelectorAll('[data-timer-btn]').forEach(function(btn) {
+                if (btn.dataset.stepName === stepName) {
+                    btn.textContent = "结束计时";
+                    btn.style.background = "#F44336";
+                }
+            });
+            
+            // Show timer status
+            let status = document.getElementById('timer-status');
+            if (!status) {
+                status = document.createElement('div');
+                status.id = 'timer-status';
+                document.querySelector('.q-page').appendChild(status);
+            }
+            status.style.cssText = 'position:fixed;top:10px;right:10px;background:#4CAF50;color:#fff;padding:8px 16px;border-radius:8px;z-index:9999;font-size:13px;';
+            status.textContent = '⏱ ' + stepName + ' 计时中...';
+            
+            console.log('[Rubedo] Timer started:', stepName);
+        };
+        
+        window.stopRubedTimer = function() {
+            if (!timerStart) return null;
+            
+            let endTime = Date.now();
+            let durationMs = endTime - timerStart;
+            let durationMin = Math.round(durationMs / 60000);
+            
+            let result = {
+                step_name: timerStep,
+                sop_id: timerSopId,
+                sop_name: timerSopName,
+                start_time: new Date(timerStart).toISOString(),
+                end_time: new Date(endTime).toISOString(),
+                duration_min: durationMin,
+            };
+            
+            // Reset timer
+            timerStart = null;
+            timerStep = null;
+            
+            // Reset buttons
+            document.querySelectorAll('[data-timer-btn]').forEach(function(btn) {
+                btn.textContent = "开始计时";
+                btn.style.background = "";
+            });
+            
+            // Remove status
+            let status = document.getElementById('timer-status');
+            if (status) status.remove();
+            
+            return result;
+        };
+        
+        window.getTimerState = function() {
+            return { running: timerStart !== null, step: timerStep };
+        };
+    })();
+    </script>
+    """
+    ui.add_head_html(timer_js)
+    
     ui.label(sop["name"]).classes("text-2xl font-bold text-white")
     ui.label(sop.get("desc", "")).classes("text-gray-400")
-
+    
     steps_container = ui.column().classes("w-full gap-4 mt-4")
-
+    
     def render_steps():
         steps_container.clear()
         for step in sop.get("steps", []):
@@ -596,18 +799,137 @@ def sop_page(sop_id: str):
                     ui.label(step.get("desc", "")).classes("text-sm text-gray-400")
                     if step.get("est_min", 0) > 0:
                         ui.label(f"预估: {step['est_min']} min").classes("text-xs text-yellow-400")
-                    # Timer buttons (simplified)
+                    # Timer buttons (working)
                     if step.get("exec_mode") == "manual" and step.get("est_min", 0) > 0:
-                        ui.button("开始计时", on_click=lambda s=step: start_step_timer(s))
-
+                        # Use HTML button with JS handler for timer
+                        btn_html = f'<button data-timer-btn="1" data-step-name="{step["name"]}" onclick="window.handleTimerClick(this, \'{step["name"]}\', \'{sop_id}\', \'{sop["name"]}\')" style="padding:8px 16px;background:#e94560;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;">开始计时</button>'
+                        ui.html(btn_html)
+    
+    # Add global JS handler for timer buttons
+    handler_js = """
+    <script>
+    window.handleTimerClick = function(btn, stepName, sopId, sopName) {
+        if (btn.textContent === "开始计时") {
+            window.startRubedTimer(stepName, sopId, sopName);
+        } else {
+            let result = window.stopRubedTimer();
+            if (result) {
+                let income = prompt("本次收入（元，留空为0）：", "0");
+                income = parseFloat(income) || 0;
+                let note = prompt("备注（可选）：", "") || "";
+                
+                let entry = {
+                    sop_id: result.sop_id,
+                    sop_name: result.sop_name,
+                    step_name: result.step_name,
+                    start_time: result.start_time,
+                    end_time: result.end_time,
+                    duration_min: result.duration_min,
+                    income: income,
+                    note: note,
+                };
+                
+                fetch("/api/timelog/write", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify(entry)
+                }).then(function(r) { return r.json(); }).then(function(data) {
+                    if (data.ok) {
+                        alert("✅ 计时已记录：" + result.duration_min + " 分钟");
+                    } else {
+                        alert("❌ 记录失败：" + (data.error || "未知错误"));
+                    }
+                });
+            }
+        }
+    };
+    </script>
+    """
+    ui.add_head_html(handler_js)
+    
     render_steps()
 
 
-def start_step_timer(step: dict):
-    """Start a timer for a manual step (simplified version)."""
-    import time
-    # This is a placeholder — full timer needs JS integration
-    ui.notify(f"计时开始: {step['name']} (预计 {step['est_min']} min)")
+# ====== Audit Page ======
+
+@ui.page("/audit")
+def audit_page():
+    """Time audit page — shows hourly rate and time breakdown."""
+    ui.label("⏱ 时间审计").classes("text-2xl font-bold text-white")
+    ui.label("查看你的时薪和时间分配").classes("text-gray-400 mb-4")
+
+    # Date range inputs
+    today = date.today()
+    first_day = today.replace(day=1)
+    last_day = (first_day.replace(month=first_day.month % 12 + 1, day=1) - timedelta(days=1)) if first_day.month < 12 else first_day.replace(year=first_day.year + 1, month=1, day=1) - timedelta(days=1)
+
+    start_input = ui.date_input("开始日期", value=first_day)
+    end_input = ui.date_input("结束日期", value=last_day)
+
+    report_container = ui.column().classes("w-full gap-4 mt-4")
+
+    def generate_report():
+        """Generate report for the selected date range."""
+        try:
+            start = date.fromisoformat(start_input.value)
+            end = date.fromisoformat(end_input.value)
+        except (ValueError, TypeError):
+            ui.notify("日期格式错误", type="negative")
+            return
+
+        report_container.clear()
+        with report_container:
+            ui.label("计算中...").classes("text-gray-400")
+
+        # Read data and calculate
+        entries = all_timelog_in_range(start, end)
+        events = all_events_in_range(start, end)
+        stats = calc_hourly_rate(entries, events)
+
+        # Display results
+        report_container.clear()
+        with report_container:
+            if stats["total_minutes"] == 0:
+                ui.label("该时间段没有时间记录。").classes("text-gray-400 text-lg")
+                ui.label("去 SOP 页面点「开始计时」来记录时间。").classes("text-gray-500")
+                return
+
+            # Summary cards
+            with ui.row().classes("gap-4 w-full"):
+                with ui.card().classes("flex-1 p-4 bg-gray-800"):
+                    ui.label("总时长").classes("text-sm text-gray-400")
+                    ui.label(f"{stats['total_minutes']} 分钟").classes("text-2xl font-bold text-white")
+                with ui.card().classes("flex-1 p-4 bg-gray-800"):
+                    ui.label("总收入").classes("text-sm text-gray-400")
+                    ui.label(f"¥{stats['total_income']:.2f}").classes("text-2xl font-bold text-green-400")
+                with ui.card().classes("flex-1 p-4 bg-gray-800"):
+                    ui.label("时薪").classes("text-sm text-gray-400")
+                    ui.label(f"¥{stats['hourly_rate']:.2f}/小时").classes("text-2xl font-bold text-yellow-400")
+
+            # By SOP breakdown
+            if stats.get("by_sop"):
+                ui.label("按 SOP 统计").classes("text-lg font-bold text-white mt-4")
+                for sop_id, sop_stats in stats["by_sop"].items():
+                    with ui.card().classes("w-full p-3 bg-gray-700"):
+                        with ui.row().classes("justify-between"):
+                            ui.label(sop_id).classes("text-white font-bold")
+                            ui.label(f"{sop_stats['minutes']} 分钟 / ¥{sop_stats['income']:.2f}").classes("text-gray-300")
+
+            # Recent entries
+            if entries:
+                ui.label("最近记录").classes("text-lg font-bold text-white mt-4")
+                for entry in entries[-10:]:
+                    with ui.card().classes("w-full p-2 bg-gray-800"):
+                        with ui.row().classes("justify-between"):
+                            ui.label(entry.get("step_name", "")).classes("text-white")
+                            ui.label(f"{entry.get('duration_min', 0)} 分钟").classes("text-gray-400")
+                        if entry.get("note"):
+                            ui.label(entry["note"]).classes("text-xs text-gray-500")
+
+    ui.button("生成报告", on_click=lambda: generate_report()).classes("mt-2")
+
+    # Generate report on page load
+    generate_report()
 
 
 # ====== Startup / Shutdown ======
