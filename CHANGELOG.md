@@ -10,6 +10,7 @@
 - **A3 事件锁定 UI**：事件详情对话框新增"锁定/解锁"按钮，锁定后事件不可被重复事件展开覆盖
 - **A4 重复事件管理 UI**：设置对话框新增"重复事件模板"列表，支持启用/禁用/删除模板
 - **预热重复事件（Preheat）**：新增 `preheat` 重复模式——在购物节/法定节假日/自定义节假日前 N 天自动生成事件，支持"每年"或"仅今年"范围
+- **通用重复事件展开**：新增 `expand_recurring_schedules()` 函数，支持 daily/weekly/monthly/yearly 四种重复模式按周期展开虚拟事件；schedule 模板新增 `start_date` 字段
 - **特殊日子管理**：`/api/special-days?year=YYYY` 端点返回购物节、法定节假日、自定义节假日；设置页面支持添加/删除自定义节假日
 - **创建事件字段完善**：新增日期/时间选择器（`datetime-local`）、备注（`textarea`）、提醒时间选择（事件开始时/提前15分钟/提前30分钟/提前1小时）
 - **A2 SOP 计时器**：SOP 页面"开始计时"按钮真正记录时间（客户端 JS 计时，写入 `data/timelog/`）
@@ -25,6 +26,8 @@
 - **重复事件数据层**：`data/schedules.json` 存储重复事件模板，`expand_preheat_schedules()` 在 `/api/events` 中运行时展开
 
 ### Fixed
+- **节气/学期不再有背景色**：节气和学期改为只显示列头文字（如"🌿小暑"），格子背景保持白色；默认格子背景统一设为白色
+- **重复事件不重复展开**：daily/weekly/monthly/yearly 模式此前只创建一次性事件，现改为创建 schedule 模板并运行时展开虚拟事件
 - **节假日背景色不显示/错位**：6 个叠加 bug 逐个根因修复
   - `loadEvents()` 用 `dp.visibleStart()` 取日期范围，DayPilot 状态未更新返回旧周 → 改用 `currentStart`（dayjs 同步变量）
   - `dayjs().startOf("isoWeek")` 未加载 isoWeek 插件静默返回当前时刻 → 改纯数学算周一
