@@ -58,14 +58,18 @@
                 var ds = cellDateStr(args.cell.start);
                 if (!ds) return;
 
+                args.cell.properties = args.cell.properties || {};
+                args.cell.properties.backColor = "#FFFFFF";
+
                 var bg = cellBackgrounds[ds];
                 if (!bg) return;
 
                 var settings = getOverlaySettings();
                 if (!settings[typeKey[bg.type] || "sem"]) return;
 
-                args.cell.properties = args.cell.properties || {};
-                args.cell.properties.backColor = bg.color;
+                if (bg.color) {
+                    args.cell.properties.backColor = bg.color;
+                }
                 args.cell.toolTip = bg.text;
             },
 
@@ -112,7 +116,8 @@
                 reminder:    d.reminder     || 'none',
                 status:      d.status       || 'pending',
                 locked:      d.locked       || false,
-                readonly:    d.readonly     || false
+                readonly:    d.readonly     || false,
+                recurring:   d.recurring    || false
             };
         }
 
@@ -463,6 +468,51 @@
                     return;
                 }
 
+                // Handle recurring (daily/weekly/monthly/yearly) mode
+                if (repeat === "daily" || repeat === "weekly" || repeat === "monthly" || repeat === "yearly") {
+                    var startDateStr = startInput.value ? startInput.value.slice(0, 10) : new Date().toISOString().slice(0, 10);
+                    var startTimeStr = startInput.value ? startInput.value.slice(11, 16) : "09:00";
+
+                    var recurringData = {
+                        title: withIcon(title, kind),
+                        repeat_mode: repeat,
+                        start_date: startDateStr,
+                        start_time: startTimeStr,
+                        duration_minutes: 60,
+                        kind: kind,
+                        description: desc,
+                        reminder: reminder,
+                        exec_mode: "manual",
+                        scope: "yearly",
+                        year: 0,
+                    };
+
+                    var repeatLabel = {"daily": "每天", "weekly": "每周", "monthly": "每月", "yearly": "每年"}[repeat];
+
+                    fetch("/api/schedules", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify(recurringData)
+                    }).then(async function(r) {
+                        if (!r.ok) {
+                            var text = await r.text();
+                            throw new Error("HTTP " + r.status + "：" + text.substring(0, 400));
+                        }
+                        return r.json();
+                    }).then(function(data) {
+                        if (data.ok) {
+                            overlay.remove();
+                            loadEvents();
+                            alert("✅ " + repeatLabel + "重复事件已创建！从 " + startDateStr + " 起按周期自动生成。");
+                        } else {
+                            alert("创建失败：" + (data.error || "未知错误"));
+                        }
+                    }).catch(function(err) {
+                        alert("❌ " + err.toString());
+                    });
+                    return;
+                }
+
                 // Regular event creation
                 fetch("/api/events/create", {
                     method: "POST",
@@ -622,7 +672,8 @@
                 html +=     '<button id="dlg-detail-lock" style="padding:8px 16px;background:transparent;color:#FF9800;border:1px solid #FF9800;border-radius:8px;cursor:pointer;font-size:13px;">' + (ev.locked ? "🔓 解锁" : "🔒 锁定") + '</button>';
                 html +=     '<button id="dlg-detail-delete" style="padding:8px 16px;background:transparent;color:#F44336;border:1px solid #F44336;border-radius:8px;cursor:pointer;font-size:13px;">删除</button>';
             } else {
-                html +=     '<span style="font-size:12px;color:#666;padding:8px 16px;">只读事件（节假日/节气）</span>';
+                var roMsg = ev.recurring ? "重复事件（请在设置中管理）" : "只读事件（节假日/节气）";
+                html +=     '<span style="font-size:12px;color:#666;padding:8px 16px;">' + roMsg + '</span>';
             }
             html +=     '<button id="dlg-detail-close" style="padding:8px 16px;background:#0f3460;color:#eee;border:1px solid #0f3460;border-radius:8px;cursor:pointer;font-size:13px;">关闭</button>';
             html +=   '</div>';
@@ -875,8 +926,21 @@
                         items += '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;font-size:13px;border-bottom:1px solid #0f3460;">';
                         items +=   '<div style="flex:1;overflow:hidden;">';
                         items +=     '<div style="font-weight:bold;color:' + statusColor + ';">' + escapeHtml(sch.title) + '</div>';
-                        items +=     '<div style="font-size:11px;color:#aaa;">' + (sch.target_name || sch.target_date || '') + ' 前' + sch.preheat_days + '天';
-                        if (sch.scope === 'once') items += ' (仅今年)';
+                        items +=     '<div style="font-size:11px;color:#aaa;">';
+                        if (sch.repeat_mode === 'preheat') {
+                            items += (sch.target_name || sch.target_date || '') + ' 前' + sch.preheat_days + '天';
+                            if (sch.scope === 'once') items += ' (仅今年)';
+                        } else if (sch.repeat_mode === 'daily') {
+                            items += '每天重复';
+                        } else if (sch.repeat_mode === 'weekly') {
+                            items += '每周重复';
+                        } else if (sch.repeat_mode === 'monthly') {
+                            items += '每月重复';
+                        } else if (sch.repeat_mode === 'yearly') {
+                            items += '每年重复';
+                        } else {
+                            items += (sch.repeat_mode || '重复');
+                        }
                         items +=     '</div>';
                         items +=   '</div>';
                         items +=   '<button data-id="' + sch.id + '" data-enabled="' + (sch.enabled ? 'true' : 'false') + '" class="sch-toggle" style="padding:3px 10px;background:' + statusColor + ';color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;">' + statusText + '</button>';

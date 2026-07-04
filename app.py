@@ -222,6 +222,128 @@ def expand_preheat_schedules(start: date, end: date) -> list[dict]:
     return events
 
 
+def expand_recurring_schedules(start: date, end: date) -> list[dict]:
+    """Expand recurring schedules (daily/weekly/monthly/yearly) into events."""
+    events = []
+    schedules = read_schedules()
+
+    for schedule in schedules:
+        if not schedule.get("enabled", True):
+            continue
+
+        repeat_mode = schedule.get("repeat_mode", "")
+        if repeat_mode not in ("daily", "weekly", "monthly", "yearly"):
+            continue
+
+        start_date_str = schedule.get("start_date", "")
+        if not start_date_str:
+            continue
+
+        try:
+            sched_start = date.fromisoformat(start_date_str)
+        except (ValueError, TypeError):
+            continue
+
+        start_time = schedule.get("start_time", "09:00")
+        duration = schedule.get("duration_minutes", 60)
+        title = schedule.get("title", "重复事件")
+        sid = schedule.get("id", "unknown")
+
+        try:
+            sh, sm = int(start_time[:2]), int(start_time[3:])
+        except (ValueError, IndexError):
+            sh, sm = 9, 0
+
+        occurrences = []
+
+        if repeat_mode == "daily":
+            days_diff = (start - sched_start).days
+            if days_diff < 0:
+                d = sched_start
+            else:
+                d = sched_start + timedelta(days=days_diff)
+            while d <= end:
+                if d >= start:
+                    occurrences.append(d)
+                d += timedelta(days=1)
+
+        elif repeat_mode == "weekly":
+            days_diff = (start - sched_start).days
+            if days_diff < 0:
+                d = sched_start
+            else:
+                weeks = days_diff // 7
+                d = sched_start + timedelta(weeks=weeks)
+                if d < start:
+                    d += timedelta(days=7)
+            while d <= end:
+                if d >= start:
+                    occurrences.append(d)
+                d += timedelta(days=7)
+
+        elif repeat_mode == "monthly":
+            y, m, day = sched_start.year, sched_start.month, sched_start.day
+            while (y, m) < (start.year, start.month):
+                m += 1
+                if m > 12:
+                    m = 1
+                    y += 1
+            while True:
+                try:
+                    d = date(y, m, day)
+                except ValueError:
+                    pass
+                else:
+                    if d > end:
+                        break
+                    if d >= start:
+                        occurrences.append(d)
+                m += 1
+                if m > 12:
+                    m = 1
+                    y += 1
+                if y > end.year + 1:
+                    break
+
+        elif repeat_mode == "yearly":
+            m, day = sched_start.month, sched_start.day
+            y = max(sched_start.year, start.year)
+            while True:
+                try:
+                    d = date(y, m, day)
+                except ValueError:
+                    y += 1
+                    continue
+                if d > end:
+                    break
+                if d >= start:
+                    occurrences.append(d)
+                y += 1
+                if y > end.year + 1:
+                    break
+
+        for d in occurrences:
+            start_dt = datetime.combine(d, datetime.min.time().replace(hour=sh, minute=sm))
+            end_dt = start_dt + timedelta(minutes=duration)
+            events.append({
+                "id": f"recurring-{sid}-{d.isoformat()}",
+                "start": start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                "end": end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                "text": title,
+                "kind": schedule.get("kind", "reminder"),
+                "description": schedule.get("description", ""),
+                "reminder": schedule.get("reminder", "none"),
+                "exec_mode": schedule.get("exec_mode", "manual"),
+                "status": "pending",
+                "locked": False,
+                "readonly": True,
+                "schedule_id": sid,
+                "recurring": True,
+            })
+
+    return events
+
+
 # ====== Data Layer ======
 
 def daily_file(day: date) -> Path:
@@ -756,6 +878,9 @@ async def api_list_events(request: Request):
         # Expand preheat schedules
         preheat_events = expand_preheat_schedules(start, end)
         events.extend(preheat_events)
+        # Expand recurring schedules (daily/weekly/monthly/yearly)
+        recurring_events = expand_recurring_schedules(start, end)
+        events.extend(recurring_events)
         return events
     except Exception:
         return []
@@ -856,7 +981,7 @@ async def api_cell_backgrounds(request: Request):
                 term_date = date(year, m, d)
                 if start <= term_date <= end:
                     ds = term_date.isoformat()
-                    dates[ds] = {"color": "#FFE0B2", "text": f"\U0001F33F {name}", "type": "solar"}
+                    dates[ds] = {"color": "", "text": f"\U0001F33F {name}", "type": "solar"}
             except ValueError:
                 pass
 
@@ -905,7 +1030,7 @@ async def api_cell_backgrounds(request: Request):
                 if sem_start <= d <= sem_end:
                     ds = d.isoformat()
                     if ds not in dates:
-                        dates[ds] = {"color": "#F3E5F5", "text": f"\U0001F4DA {name}", "type": "sem"}
+                        dates[ds] = {"color": "", "text": f"\U0001F4DA {name}", "type": "sem"}
                 d += timedelta(days=1)
 
         # 5. 自定义节假日
@@ -1067,6 +1192,7 @@ async def api_create_schedule(request: Request):
             "target_date": data.get("target_date", ""),
             "target_name": data.get("target_name", ""),
             "preheat_days": data.get("preheat_days", 7),
+            "start_date": data.get("start_date", ""),
             "start_time": data.get("start_time", "09:00"),
             "duration_minutes": data.get("duration_minutes", 60),
             "kind": data.get("kind", "reminder"),
