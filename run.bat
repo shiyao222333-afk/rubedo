@@ -21,7 +21,7 @@ python -c "import nicegui, apscheduler, starlette, lunar_python" >nul 2>&1
 if %errorlevel% equ 0 goto deps_ok
 
 echo [INSTALL] Installing dependencies...
-pip install nicegui APScheduler
+pip install nicegui APScheduler lunar-python
 if %errorlevel% neq 0 goto install_fail
 
 :deps_ok

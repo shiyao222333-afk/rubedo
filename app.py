@@ -497,7 +497,10 @@ def fetch_holidays(year: int) -> dict:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         url = f"https://timor.tech/api/holiday/year/{year}"
-        with urllib.request.urlopen(url, context=ctx, timeout=5) as resp:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Rubedo-Calendar/1.0"
+        })
+        with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             # Normalize timor.tech format → legacy format
             # Input:  {"code":0, "holiday":{"01-01":{"holiday":true,"name":"元旦","date":"2026-01-01"},...}}
@@ -513,7 +516,8 @@ def fetch_holidays(year: int) -> dict:
                 data = {"holidays": holidays_list}
             fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
             return data
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] Failed to fetch holidays from API: {e}")
         return {}
 
 
@@ -587,8 +591,10 @@ def get_all_festivals_for_year(year: int) -> list[tuple]:
         solar = lunar.getSolar()
         mmdd = f"{solar.getMonth():02d}-{solar.getDay():02d}"
         festivals.append(("七夕", mmdd, mmdd))
-    except Exception:
-        pass  # lunar-python not available, skip
+    except ImportError:
+        print("[WARN] lunar-python not installed — 七夕 will not appear on calendar")
+    except Exception as e:
+        print(f"[ERROR] Failed to compute 七夕 date: {e}")
 
     return festivals
 
