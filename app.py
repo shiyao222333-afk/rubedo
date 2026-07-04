@@ -15,6 +15,7 @@ NiceGUI 桌面应用入口
 """
 
 import asyncio
+import calendar
 import json
 import os
 import sys
@@ -87,7 +88,7 @@ def get_special_days(year: int) -> dict:
     }
     
     # Shopping festivals (assume same dates each year)
-    for name, start_mmdd, end_mmdd in SHOPPING_FESTIVALS_2025:
+    for name, start_mmdd, end_mmdd in get_all_festivals_for_year(year):
         sm, sd = int(start_mmdd[:2]), int(start_mmdd[3:])
         try:
             fest_date = date(year, sm, sd)
@@ -484,7 +485,7 @@ import urllib.request
 import ssl
 
 def fetch_holidays(year: int) -> dict:
-    """Fetch Chinese holidays from timor.peanut"""
+    """Fetch Chinese holidays from timor.tech."""
     fp = DATA_DIR / f"holidays_{year}.json"
     if fp.exists():
         try:
@@ -495,9 +496,21 @@ def fetch_holidays(year: int) -> dict:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        url = f"https://timor.peanut.com/api/holidays?country=CN&year={year}"
+        url = f"https://timor.tech/api/holiday/year/{year}"
         with urllib.request.urlopen(url, context=ctx, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
+            # Normalize timor.tech format → legacy format
+            # Input:  {"code":0, "holiday":{"01-01":{"holiday":true,"name":"元旦","date":"2026-01-01"},...}}
+            # Output: {"holidays": [{"name":"元旦","date":"2026-01-01"},...]}
+            if data.get("code") == 0 and isinstance(data.get("holiday"), dict):
+                holidays_list = []
+                for mmdd, info in data["holiday"].items():
+                    if info.get("holiday"):  # Only actual holidays, skip makeup workdays
+                        holidays_list.append({
+                            "name": info.get("name", "节假日"),
+                            "date": info.get("date", ""),
+                        })
+                data = {"holidays": holidays_list}
             fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
             return data
     except Exception:
@@ -531,6 +544,55 @@ SHOPPING_FESTIVALS_2025 = [
     ("年货节返场", "12-20", "12-31"),
 ]
 
+
+def nth_weekday_of_month(year: int, month: int, weekday: int, nth: int) -> Optional[date]:
+    """Return the nth occurrence of a weekday in a given month.
+    
+    weekday: 0=Monday ... 6=Sunday (matches calendar module)
+    nth: 1=first, 2=second, etc.
+    Returns None if the month doesn't have that many occurrences.
+    """
+    cal = calendar.monthcalendar(year, month)
+    count = 0
+    for week in cal:
+        if week[weekday] != 0:  # 0 means day belongs to adjacent month
+            count += 1
+            if count == nth:
+                return date(year, month, week[weekday])
+    return None
+
+
+def get_all_festivals_for_year(year: int) -> list[tuple]:
+    """Return unified list of (name, start_mmdd, end_mmdd) for all festivals.
+    
+    Combines static SHOPPING_FESTIVALS_2025 with dynamically computed dates
+    (Mother's Day, Father's Day, 七夕). Single source of truth.
+    """
+    festivals = list(SHOPPING_FESTIVALS_2025)
+
+    # Mother's Day — 5月第2个周日
+    d = nth_weekday_of_month(year, 5, 6, 2)
+    if d:
+        festivals.append(("母亲节", d.strftime("%m-%d"), d.strftime("%m-%d")))
+
+    # Father's Day — 6月第3个周日
+    d = nth_weekday_of_month(year, 6, 6, 3)
+    if d:
+        festivals.append(("父亲节", d.strftime("%m-%d"), d.strftime("%m-%d")))
+
+    # 七夕 — 农历七月初七，用 lunar-python 转换
+    try:
+        from lunar_python import Lunar
+        lunar = Lunar.fromYmd(year, 7, 7)
+        solar = lunar.getSolar()
+        mmdd = f"{solar.getMonth():02d}-{solar.getDay():02d}"
+        festivals.append(("七夕", mmdd, mmdd))
+    except Exception:
+        pass  # lunar-python not available, skip
+
+    return festivals
+
+
 SEMESTER_RANGES = [
     ("寒假", "01-15", "02-28"), ("春季", "03-01", "06-30"),
     ("暑假", "07-01", "08-31"), ("秋季", "09-01", "12-31"),
@@ -550,7 +612,7 @@ def get_solar_term_overlays(target_date: date) -> list[str]:
 def get_shopping_festival_overlays(target_date: date) -> list[str]:
     """Return shopping festival names that overlay the given date."""
     overlays = []
-    for name, start_mmdd, end_mmdd in SHOPPING_FESTIVALS_2025:
+    for name, start_mmdd, end_mmdd in get_all_festivals_for_year(target_date.year):
         start_m, start_d = int(start_mmdd[:2]), int(start_mmdd[3:])
         end_m, end_d     = int(end_mmdd[:2]), int(end_mmdd[3:])
         target_m, target_d = target_date.month, target_date.day
@@ -604,8 +666,8 @@ def generate_overlay_events(start: date, end: date) -> list[dict]:
         except ValueError:
             pass
 
-    # 2. 购物节 — 购物节日期每年固定，直接用2025年数据
-    shopping_fests = SHOPPING_FESTIVALS_2025
+    # 2. 购物节 — 包含固定日期 + 动态节日
+    shopping_fests = get_all_festivals_for_year(year)
     for name, start_mmdd, end_mmdd in shopping_fests:
         sm, sd = int(start_mmdd[:2]), int(start_mmdd[3:])
         em, ed = int(end_mmdd[:2]), int(end_mmdd[3:])
@@ -996,7 +1058,7 @@ async def api_cell_backgrounds(request: Request):
                 pass
 
         # 2. 购物节
-        for name, start_mmdd, end_mmdd in SHOPPING_FESTIVALS_2025:
+        for name, start_mmdd, end_mmdd in get_all_festivals_for_year(year):
             sm, sd = int(start_mmdd[:2]), int(start_mmdd[3:])
             em, ed = int(end_mmdd[:2]), int(end_mmdd[3:])
             try:

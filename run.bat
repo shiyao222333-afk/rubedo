@@ -17,7 +17,7 @@ python --version >nul 2>&1
 if %errorlevel% neq 0 goto no_python
 
 :: Check dependencies
-python -c "import nicegui, apscheduler, starlette" >nul 2>&1
+python -c "import nicegui, apscheduler, starlette, lunar_python" >nul 2>&1
 if %errorlevel% equ 0 goto deps_ok
 
 echo [INSTALL] Installing dependencies...
