@@ -484,12 +484,53 @@ def list_sops() -> list[dict]:
 import urllib.request
 import ssl
 
+def _normalize_holiday_data(data: dict) -> dict:
+    """Normalize holiday API data to legacy format.
+    Handles 3 input formats:
+      1. Already normalized: {"holidays": [{"name":"元旦","date":"2026-01-01"},...]}
+      2. timor.tech v2: {"code":0, "holiday":{"01-01":{...},...}}
+      3. Old legacy:     {"2026-01-01": {"name":"元旦","isOffDay":true},...}
+    Always returns: {"holidays": [...]}
+    """
+    # Already normalized — return as-is
+    if "holidays" in data:
+        return data
+
+    # timor.tech v2 format: {"code":0, "holiday":{...}}
+    if data.get("code") == 0 and isinstance(data.get("holiday"), dict):
+        holidays_list = []
+        for mmdd, info in data["holiday"].items():
+            if info.get("holiday"):  # Only actual holidays, skip makeup workdays
+                holidays_list.append({
+                    "name": info.get("name", "节假日"),
+                    "date": info.get("date", ""),
+                })
+        return {"holidays": holidays_list}
+
+    # Old legacy format: {"2026-01-01": {"name":"元旦","isOffDay":true},...}
+    holidays_list = []
+    for date_str, info in data.items():
+        if isinstance(info, dict) and info.get("isOffDay", True):
+            holidays_list.append({
+                "name": info.get("name", "节假日"),
+                "date": date_str,
+            })
+    if holidays_list:
+        return {"holidays": holidays_list}
+
+    # Unknown format — return empty
+    return {"holidays": []}
+
+
 def fetch_holidays(year: int) -> dict:
     """Fetch Chinese holidays from timor.tech."""
     fp = DATA_DIR / f"holidays_{year}.json"
     if fp.exists():
         try:
-            return json.loads(fp.read_text(encoding="utf-8"))
+            cached = json.loads(fp.read_text(encoding="utf-8"))
+            normalized = _normalize_holiday_data(cached)
+            if normalized.get("holidays"):
+                return normalized
         except (json.JSONDecodeError, OSError):
             pass
     try:
@@ -502,23 +543,12 @@ def fetch_holidays(year: int) -> dict:
         })
         with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            # Normalize timor.tech format → legacy format
-            # Input:  {"code":0, "holiday":{"01-01":{"holiday":true,"name":"元旦","date":"2026-01-01"},...}}
-            # Output: {"holidays": [{"name":"元旦","date":"2026-01-01"},...]}
-            if data.get("code") == 0 and isinstance(data.get("holiday"), dict):
-                holidays_list = []
-                for mmdd, info in data["holiday"].items():
-                    if info.get("holiday"):  # Only actual holidays, skip makeup workdays
-                        holidays_list.append({
-                            "name": info.get("name", "节假日"),
-                            "date": info.get("date", ""),
-                        })
-                data = {"holidays": holidays_list}
-            fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-            return data
+            normalized = _normalize_holiday_data(data)
+            fp.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
+            return normalized
     except Exception as e:
         print(f"[WARN] Failed to fetch holidays from API: {e}")
-        return {}
+        return {"holidays": []}
 
 
 SOLAR_TERMS_2025 = [
