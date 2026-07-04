@@ -19,6 +19,7 @@ import calendar
 import json
 import os
 import sys
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -482,6 +483,7 @@ def list_sops() -> list[dict]:
 # ====== Holiday & Solar Term (reuse from v0.2.0) ======
 
 import urllib.request
+import urllib.error
 import ssl
 
 def _normalize_holiday_data(data: dict) -> dict:
@@ -522,6 +524,40 @@ def _normalize_holiday_data(data: dict) -> dict:
     return {"holidays": []}
 
 
+def _compute_lunar_holidays(year: int) -> dict:
+    """Compute major lunar holidays using lunar-python (API fallback).
+    Returns: {"holidays": [{"name":"春节","date":"2027-01-28"},...]}
+    """
+    try:
+        from lunar_python import Lunar
+
+        # Map: (lunar_month, lunar_day, name, display_name)
+        LUNAR_HOLIDAYS = [
+            (1, 1, "春节"),
+            (1, 15, "元宵节"),
+            (5, 5, "端午节"),
+            (8, 15, "中秋节"),
+            (9, 9, "重阳节"),
+        ]
+
+        holidays = []
+        for lm, ld, name in LUNAR_HOLIDAYS:
+            try:
+                lunar = Lunar.fromYmd(year, lm, ld)
+                solar = lunar.getSolar()
+                date_str = f"{solar.getYear()}-{solar.getMonth():02d}-{solar.getDay():02d}"
+                holidays.append({"name": name, "date": date_str})
+            except Exception:
+                pass
+
+        if holidays:
+            return {"holidays": holidays}
+    except ImportError:
+        pass
+
+    return {"holidays": []}
+
+
 _holiday_cache: dict[int, dict] = {}  # In-memory cache to avoid spamming the API
 
 
@@ -543,7 +579,7 @@ def fetch_holidays(year: int) -> dict:
             pass
 
     # API call — only once per year per session
-    try:
+    def _do_api_call():
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
@@ -552,15 +588,35 @@ def fetch_holidays(year: int) -> dict:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Rubedo-Calendar/1.0"
         })
         with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+            return json.loads(resp.read().decode("utf-8"))
+
+    last_error = None
+    for attempt in (1, 2):
+        try:
+            data = _do_api_call()
             normalized = _normalize_holiday_data(data)
+            # If API returns empty (e.g., 2027 not published yet), fall back to lunar
+            if not normalized.get("holidays"):
+                normalized = _compute_lunar_holidays(year)
             _holiday_cache[year] = normalized
             fp.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
             return normalized
-    except Exception as e:
-        print(f"[WARN] Failed to fetch holidays for {year}: {e}")
-        # Return whatever we have in cache, or empty
-        return _holiday_cache.get(year, {"holidays": []})
+        except urllib.error.HTTPError as e:
+            last_error = e
+            if e.code == 429 and attempt == 1:
+                time.sleep(2)  # Rate limited, wait and retry once
+                continue
+            break
+        except Exception as e:
+            last_error = e
+            break
+
+    print(f"[WARN] Failed to fetch holidays for {year}: {last_error}")
+    # Fall back to lunar computation on API failure
+    fallback = _compute_lunar_holidays(year)
+    if fallback.get("holidays"):
+        _holiday_cache[year] = fallback
+    return _holiday_cache.get(year, {"holidays": []})
 
 
 SOLAR_TERMS_2025 = [
@@ -1646,19 +1702,22 @@ def on_startup():
         scheduler.start()
         print("[Rubedo] APScheduler 已启动 (SQLite 持久化)")
 
-    # 后台获取节假日数据（不阻塞启动）
+    # 后台获取节假日数据（当前年 + 明年，间隔2秒避免限流）
     import threading
     def _fetch_holidays_bg():
-        try:
-            from datetime import datetime
-            current_year = datetime.now().year
-            data = fetch_holidays(current_year)
-            if data:
-                print(f"[Rubedo] 节假日数据已获取 ({current_year}年)")
-            else:
-                print(f"[Rubedo] 节假日数据获取失败 ({current_year}年)")
-        except Exception as e:
-            print(f"[Rubedo] 节假日数据获取异常: {e}")
+        from datetime import datetime
+        current_year = datetime.now().year
+        for yr in (current_year, current_year + 1):
+            try:
+                data = fetch_holidays(yr)
+                if data and data.get("holidays"):
+                    print(f"[Rubedo] 节假日数据已获取 ({yr}年, {len(data['holidays'])}天)")
+                else:
+                    print(f"[Rubedo] 节假日数据为空 ({yr}年)")
+            except Exception as e:
+                print(f"[Rubedo] 节假日获取异常 ({yr}年): {e}")
+            if yr < current_year + 1:
+                time.sleep(1.5)  # 间隔防限流
 
     t = threading.Thread(target=_fetch_holidays_bg, daemon=True)
     t.start()
