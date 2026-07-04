@@ -25,7 +25,8 @@
 ### Changed
 - **T1 编辑对话框**：替换浏览器原生 `prompt()` 为自定义美观对话框，支持标题+分类编辑
 - **T5 节假日数据**：启动时后台自动获取当年法定节假日数据（timor.tech API），存本地缓存；支持任意年份查询
-- **API 地址修正**：timor.peanut.com → timor.tech，响应格式自动适配
+- **API 地址修正**：timor.peanut.com → timor.tech，响应格式自动适配（含旧缓存格式兼容）
+- **节假日缓存格式容灾**：`_normalize_holiday_data()` 统一处理 3 种输入格式（旧版 date-keyed / timor.tech v2 / 已规范化），缓存优先读取时也走规范化
 - **重复事件数据层**：`data/schedules.json` 存储重复事件模板，`expand_preheat_schedules()` 在 `/api/events` 中运行时展开
 
 ### Fixed
