@@ -70,7 +70,7 @@
                 if (bg.color) {
                     args.cell.properties.backColor = bg.color;
                 }
-                args.cell.toolTip = bg.text;
+                args.cell.toolTip = bg.tooltip || bg.text;
             },
 
             onBeforeHeaderRender: function(args) {

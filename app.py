@@ -1137,9 +1137,14 @@ async def api_lock_event(request: Request):
 
 @app.get("/api/cell-backgrounds")
 async def api_cell_backgrounds(request: Request):
-    """Return special dates as cell background colors (not events).
-    Returns {dates: {"YYYY-MM-DD": {color, text, type}, ...}}
+    """Return special dates as cell background colors.
+    Each date supports multiple festivals (priority-sorted).
+    Returns {dates: {"YYYY-MM-DD": {color, text, tooltip, type}, ...}}
     """
+    # Priority: lower = higher priority
+    PRIORITY = {"custom": 1, "holiday": 2, "fest": 3, "solar": 4, "sem": 5}
+    COLORS   = {"custom": "#B2DFDB", "holiday": "#BBDEFB", "fest": "#DCEDC8", "solar": "", "sem": ""}
+
     try:
         start_str = request.query_params.get("start", "")
         end_str   = request.query_params.get("end", "")
@@ -1148,7 +1153,12 @@ async def api_cell_backgrounds(request: Request):
         start = date.fromisoformat(start_str)
         end   = date.fromisoformat(end_str)
         year  = start.year
-        dates = {}
+        raw   = {}  # {date_str: [(priority, color, text, type), ...]}
+
+        def add(ds, ptype, text):
+            if ds not in raw:
+                raw[ds] = []
+            raw[ds].append((PRIORITY[ptype], COLORS[ptype], text, ptype))
 
         # 1. 节气
         for name, mmdd in SOLAR_TERMS_2025:
@@ -1156,23 +1166,19 @@ async def api_cell_backgrounds(request: Request):
             try:
                 term_date = date(year, m, d)
                 if start <= term_date <= end:
-                    ds = term_date.isoformat()
-                    dates[ds] = {"color": "", "text": f"\U0001F33F {name}", "type": "solar"}
+                    add(term_date.isoformat(), "solar", f"\U0001F33F {name}")
             except ValueError:
                 pass
 
-        # 2. 购物节
-        for name, start_mmdd, end_mmdd in get_all_festivals_for_year(year):
-            sm, sd = int(start_mmdd[:2]), int(start_mmdd[3:])
-            em, ed = int(end_mmdd[:2]), int(end_mmdd[3:])
+        # 2. 购物节/特殊日
+        for name, s_mmdd, e_mmdd in get_all_festivals_for_year(year):
+            sm, sd = int(s_mmdd[:2]), int(s_mmdd[3:])
+            em, ed = int(e_mmdd[:2]), int(e_mmdd[3:])
             try:
-                fest_start = date(year, sm, sd)
-                fest_end   = date(year, em, ed)
-                d = max(fest_start, start)
-                while d <= fest_end and d <= end:
+                d = max(date(year, sm, sd), start)
+                while d <= date(year, em, ed) and d <= end:
                     ds = d.isoformat()
-                    if ds not in dates:
-                        dates[ds] = {"color": "#FCE4EC", "text": f"\U0001F6D2 {name}", "type": "fest"}
+                    add(ds, "fest", f"\U0001F6D2 {name}")
                     d += timedelta(days=1)
             except ValueError:
                 pass
@@ -1187,14 +1193,14 @@ async def api_cell_backgrounds(request: Request):
                 try:
                     h_date = date.fromisoformat(h_date_str)
                     if start <= h_date <= end:
-                        dates[h_date_str] = {"color": "#FFCDD2", "text": f"\U0001F38C {h.get('name', '节假日')}", "type": "holiday"}
+                        add(h_date_str, "holiday", f"\U0001F38C {h.get('name', '节假日')}")
                 except (ValueError, TypeError):
                     pass
 
-        # 4. 学期 (wider range, show as subtle backgrounds)
-        for name, start_mmdd, end_mmdd in SEMESTER_RANGES:
-            sm, sd = int(start_mmdd[:2]), int(start_mmdd[3:])
-            em, ed = int(end_mmdd[:2]), int(end_mmdd[3:])
+        # 4. 学期
+        for name, s_mmdd, e_mmdd in SEMESTER_RANGES:
+            sm, sd = int(s_mmdd[:2]), int(s_mmdd[3:])
+            em, ed = int(e_mmdd[:2]), int(e_mmdd[3:])
             d = start
             while d <= end:
                 try:
@@ -1204,12 +1210,10 @@ async def api_cell_backgrounds(request: Request):
                     d += timedelta(days=1)
                     continue
                 if sem_start <= d <= sem_end:
-                    ds = d.isoformat()
-                    if ds not in dates:
-                        dates[ds] = {"color": "", "text": f"\U0001F4DA {name}", "type": "sem"}
+                    add(d.isoformat(), "sem", f"\U0001F4DA {name}")
                 d += timedelta(days=1)
 
-        # 5. 自定义节假日
+        # 5. 自定义重要日子（最高优先级）
         custom_file = DATA_DIR / "custom_holidays.json"
         if custom_file.exists():
             try:
@@ -1217,17 +1221,30 @@ async def api_cell_backgrounds(request: Request):
                     custom_holidays = json.load(f)
                 for h in custom_holidays:
                     h_date_str = h.get("date", "")
-                    h_name = h.get("name", "自定义节假日")
+                    h_name = h.get("name", "自定义")
                     if not h_date_str:
                         continue
                     try:
                         h_date = date.fromisoformat(h_date_str)
                         if start <= h_date <= end:
-                            dates[h_date_str] = {"color": "#E8EAF6", "text": f"\U0001F4C5 {h_name}", "type": "custom"}
+                            add(h_date_str, "custom", f"\U0001F4C5 {h_name}")
                     except (ValueError, TypeError):
                         pass
             except Exception:
                 pass
+
+        # Merge: sort by priority, take top for color/text, all for tooltip
+        dates = {}
+        for ds, entries in raw.items():
+            entries.sort(key=lambda x: x[0])  # Sort by priority (lower=higher)
+            top_priority, top_color, top_text, top_type = entries[0]
+            all_texts = [e[2] for e in entries]
+            dates[ds] = {
+                "color": top_color,
+                "text": top_text,
+                "tooltip": "\n".join(all_texts),
+                "type": top_type,
+            }
 
         return {"dates": dates}
     except Exception:
