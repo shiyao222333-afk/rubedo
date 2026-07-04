@@ -522,17 +522,27 @@ def _normalize_holiday_data(data: dict) -> dict:
     return {"holidays": []}
 
 
+_holiday_cache: dict[int, dict] = {}  # In-memory cache to avoid spamming the API
+
+
 def fetch_holidays(year: int) -> dict:
-    """Fetch Chinese holidays from timor.tech."""
+    """Fetch Chinese holidays from timor.tech. Cached in memory per session."""
+    # Hit memory cache — no disk I/O, no API call
+    if year in _holiday_cache:
+        return _holiday_cache[year]
+
     fp = DATA_DIR / f"holidays_{year}.json"
     if fp.exists():
         try:
             cached = json.loads(fp.read_text(encoding="utf-8"))
             normalized = _normalize_holiday_data(cached)
             if normalized.get("holidays"):
+                _holiday_cache[year] = normalized
                 return normalized
         except (json.JSONDecodeError, OSError):
             pass
+
+    # API call — only once per year per session
     try:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
@@ -544,11 +554,13 @@ def fetch_holidays(year: int) -> dict:
         with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             normalized = _normalize_holiday_data(data)
+            _holiday_cache[year] = normalized
             fp.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
             return normalized
     except Exception as e:
-        print(f"[WARN] Failed to fetch holidays from API: {e}")
-        return {"holidays": []}
+        print(f"[WARN] Failed to fetch holidays for {year}: {e}")
+        # Return whatever we have in cache, or empty
+        return _holiday_cache.get(year, {"holidays": []})
 
 
 SOLAR_TERMS_2025 = [
