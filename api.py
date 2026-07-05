@@ -2,6 +2,8 @@
 Rubedo · 凝华 — API 路由模块
 包含：全部 API 路由处理函数
 从 app.py 重构拆分（2026-07-05）
+
+修复：所有 API 处理函数返回 JSONResponse（Starlette 要求）
 """
 
 from datetime import date, datetime, timedelta
@@ -10,6 +12,7 @@ from typing import Optional
 from uuid import uuid4
 
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from utils import *
 from holidays import *
@@ -38,15 +41,51 @@ async def api_create_event(request: Request):
         }
         events.append(event)
         write_day(day, events)
-        return {"ok": True, "id": new_id, "event": event}
+        return JSONResponse({"ok": True, "id": new_id, "event": event})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 async def api_update_event(request: Request):
-    """Update an existing event (text, kind, exec_mode, time, etc.)."""
+    """Update an existing event (text, kind, exec_mode, time, etc.).
+    
+    对重复事件（recurring=True），改 schedules.json 模板（影响所有 occurrence）。
+    对普通事件，改当天 daily JSON 文件。
+    """
     try:
         data = await request.json()
+        print(f"[DEBUG] api_update_event: recurring={data.get('recurring')}, schedule_id={data.get('schedule_id')}")
+        
+        # ---- 重复事件：改模板（schedules.json）----
+        if data.get("recurring") and data.get("schedule_id"):
+            print(f"[DEBUG] Updating recurring event, schedule_id={data['schedule_id']}")
+            schedules = read_schedules()
+
+            for sch in schedules:
+                if sch["id"] == data["schedule_id"]:
+                    # 改模板字段（影响所有 occurrence）
+                    if "text" in data:
+                        sch["title"] = strip_icon(data["text"])
+                    if "kind" in data:
+                        sch["kind"] = data["kind"]
+                    if "exec_mode" in data:
+                        sch["exec_mode"] = data["exec_mode"]
+                    if "description" in data:
+                        sch["description"] = data["description"]
+                    if "reminder" in data:
+                        sch["reminder"] = data["reminder"]
+                    # 时间字段 → 改 start_time 和 duration_minutes
+                    if "start" in data and "end" in data:
+                        from datetime import datetime
+                        start_dt = datetime.fromisoformat(data["start"])
+                        end_dt   = datetime.fromisoformat(data["end"])
+                        sch["start_time"] = start_dt.strftime("%H:%M")
+                        sch["duration_minutes"] = int((end_dt - start_dt).total_seconds() / 60)
+                    break
+            write_schedules(schedules)
+            return JSONResponse({"ok": True})
+        
+        # ---- 普通事件：改当天 daily JSON ----
         day = date.fromisoformat(data["day"])
         events = read_day(day)
         for ev in events:
@@ -61,15 +100,14 @@ async def api_update_event(request: Request):
                     ev["description"] = data["description"]
                 if "reminder" in data:
                     ev["reminder"] = data["reminder"]
-                # 时间字段（普通事件）
                 if "start" in data and "end" in data:
                     ev["start"] = data["start"]
                     ev["end"]   = data["end"]
                 break
         write_day(day, events)
-        return {"ok": True}
+        return JSONResponse({"ok": True})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 async def api_list_events(request: Request):
@@ -78,7 +116,7 @@ async def api_list_events(request: Request):
         start_str = request.query_params.get("start", "")
         end_str   = request.query_params.get("end", "")
         if not start_str or not end_str:
-            return []
+            return JSONResponse([])
         start = date.fromisoformat(start_str)
         end   = date.fromisoformat(end_str)
         events = all_events_in_range(start, end)
@@ -86,9 +124,9 @@ async def api_list_events(request: Request):
         events.extend(preheat_events)
         recurring_events = expand_recurring_schedules(start, end)
         events.extend(recurring_events)
-        return events
+        return JSONResponse(events)
     except Exception:
-        return []
+        return JSONResponse([])
 
 
 async def api_update_status(request: Request):
@@ -102,9 +140,9 @@ async def api_update_status(request: Request):
                 ev["status"] = data["status"]
                 break
         write_day(day, events)
-        return {"ok": True}
+        return JSONResponse({"ok": True})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 async def api_move_event(request: Request):
@@ -126,9 +164,9 @@ async def api_move_event(request: Request):
             new_events = read_day(new_day)
             new_events.append(moved)
             write_day(new_day, new_events)
-        return {"ok": True, "event": moved}
+        return JSONResponse({"ok": True, "event": moved})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 async def api_delete_event(request: Request):
@@ -139,9 +177,9 @@ async def api_delete_event(request: Request):
         events = read_day(day)
         events = [ev for ev in events if ev["id"] != data["id"]]
         write_day(day, events)
-        return {"ok": True}
+        return JSONResponse({"ok": True})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 async def api_lock_event(request: Request):
@@ -155,9 +193,9 @@ async def api_lock_event(request: Request):
                 ev["locked"] = data.get("locked", False)
                 break
         write_day(day, events)
-        return {"ok": True}
+        return JSONResponse({"ok": True})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 # ====== Cell Backgrounds API ======
@@ -171,7 +209,7 @@ async def api_cell_backgrounds(request: Request):
         start_str = request.query_params.get("start", "")
         end_str   = request.query_params.get("end", "")
         if not start_str or not end_str:
-            return {"dates": {}}
+            return JSONResponse({"dates": {}})
         start = date.fromisoformat(start_str)
         end   = date.fromisoformat(end_str)
         year  = start.year
@@ -267,9 +305,9 @@ async def api_cell_backgrounds(request: Request):
                 "type":    top_type,
             }
 
-        return {"dates": dates}
+        return JSONResponse({"dates": dates})
     except Exception:
-        return {"dates": {}}
+        return JSONResponse({"dates": {}})
 
 
 # ====== Timelog API ======
@@ -291,9 +329,9 @@ async def api_write_timelog(request: Request):
             "created_at":  datetime.now().isoformat(),
         }
         write_timelog_entry(entry)
-        return {"ok": True, "entry": entry}
+        return JSONResponse({"ok": True, "entry": entry})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 async def api_timelog_report(request: Request):
@@ -312,25 +350,25 @@ async def api_timelog_report(request: Request):
         stats["end"]   = end_str
         stats["entries_count"] = len(entries)
 
-        return {"ok": True, "stats": stats, "entries": entries}
+        return JSONResponse({"ok": True, "stats": stats, "entries": entries})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 # ====== Custom Holidays API ======
 
 CUSTOM_HOLIDAYS_FILE = DATA_DIR / "custom_holidays.json"
 
-async def api_list_custom_holidays():
+async def api_list_custom_holidays(request: Request):
     """List all custom holidays."""
     try:
         if CUSTOM_HOLIDAYS_FILE.exists():
             with open(CUSTOM_HOLIDAYS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            return {"ok": True, "holidays": data}
-        return {"ok": True, "holidays": []}
+            return JSONResponse({"ok": True, "holidays": data})
+        return JSONResponse({"ok": True, "holidays": []})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 async def api_add_custom_holiday(request: Request):
@@ -340,7 +378,7 @@ async def api_add_custom_holiday(request: Request):
         name = data.get("name", "").strip()
         date_str = data.get("date", "").strip()
         if not name or not date_str:
-            return {"ok": False, "error": "名称和日期不能为空"}
+            return JSONResponse({"ok": False, "error": "名称和日期不能为空"})
         from datetime import datetime as dt
         dt.strptime(date_str, "%Y-%m-%d")
         holidays = []
@@ -350,9 +388,9 @@ async def api_add_custom_holiday(request: Request):
         holidays.append({"name": name, "date": date_str})
         with open(CUSTOM_HOLIDAYS_FILE, "w", encoding="utf-8") as f:
             json.dump(holidays, f, ensure_ascii=False, indent=2)
-        return {"ok": True}
+        return JSONResponse({"ok": True})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 async def api_delete_custom_holiday(request: Request):
@@ -362,7 +400,7 @@ async def api_delete_custom_holiday(request: Request):
         name = data.get("name", "")
         date_str = data.get("date", "")
         if not name or not date_str:
-            return {"ok": False, "error": "参数不完整"}
+            return JSONResponse({"ok": False, "error": "参数不完整"})
         holidays = []
         if CUSTOM_HOLIDAYS_FILE.exists():
             with open(CUSTOM_HOLIDAYS_FILE, "r", encoding="utf-8") as f:
@@ -370,20 +408,20 @@ async def api_delete_custom_holiday(request: Request):
         holidays = [h for h in holidays if not (h["name"] == name and h["date"] == date_str)]
         with open(CUSTOM_HOLIDAYS_FILE, "w", encoding="utf-8") as f:
             json.dump(holidays, f, ensure_ascii=False, indent=2)
-        return {"ok": True}
+        return JSONResponse({"ok": True})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 # ====== Schedules API (重复事件模板) ======
 
-async def api_list_schedules():
+async def api_list_schedules(request: Request):
     """List all schedule templates."""
     try:
         schedules = read_schedules()
-        return {"ok": True, "schedules": schedules}
+        return JSONResponse({"ok": True, "schedules": schedules})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 async def api_create_schedule(request: Request):
@@ -415,9 +453,9 @@ async def api_create_schedule(request: Request):
         }
         schedules.append(schedule)
         write_schedules(schedules)
-        return {"ok": True, "id": new_id, "schedule": schedule}
+        return JSONResponse({"ok": True, "id": new_id, "schedule": schedule})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 async def api_update_schedule(schedule_id: str, request: Request):
@@ -436,9 +474,9 @@ async def api_update_schedule(schedule_id: str, request: Request):
                         sch[key] = data[key]
                 break
         write_schedules(schedules)
-        return {"ok": True}
+        return JSONResponse({"ok": True})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 async def api_delete_schedule(schedule_id: str):
@@ -447,9 +485,9 @@ async def api_delete_schedule(schedule_id: str):
         schedules = read_schedules()
         schedules = [s for s in schedules if s["id"] != schedule_id]
         write_schedules(schedules)
-        return {"ok": True}
+        return JSONResponse({"ok": True})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 async def api_get_schedule(schedule_id: str):
@@ -458,10 +496,10 @@ async def api_get_schedule(schedule_id: str):
         schedules = read_schedules()
         for sch in schedules:
             if sch["id"] == schedule_id:
-                return {"ok": True, "schedule": sch}
-        return {"ok": False, "error": "Schedule not found"}
+                return JSONResponse({"ok": True, "schedule": sch})
+        return JSONResponse({"ok": False, "error": "Schedule not found"})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 async def api_set_occurrence_status(schedule_id: str, request: Request):
@@ -472,9 +510,9 @@ async def api_set_occurrence_status(schedule_id: str, request: Request):
         status   = data.get("status", "pending")
         event_id = data.get("id", f"recurring-{schedule_id}-{date_str}")
         write_occurrence_override(date_str, event_id, status=status)
-        return {"ok": True}
+        return JSONResponse({"ok": True})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 async def api_set_occurrence_lock(schedule_id: str, request: Request):
@@ -485,9 +523,9 @@ async def api_set_occurrence_lock(schedule_id: str, request: Request):
         locked   = data.get("locked", False)
         event_id = data.get("id", f"recurring-{schedule_id}-{date_str}")
         write_occurrence_override(date_str, event_id, locked=locked)
-        return {"ok": True}
+        return JSONResponse({"ok": True})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 # ====== Special Days API ======
@@ -498,9 +536,9 @@ async def api_list_special_days(request: Request):
         year_str = request.query_params.get("year", str(date.today().year))
         year = int(year_str)
         special_days = get_special_days(year)
-        return {"ok": True, "special_days": special_days}
+        return JSONResponse({"ok": True, "special_days": special_days})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 # ====== Route Registration ======

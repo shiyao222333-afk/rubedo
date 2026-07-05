@@ -26,6 +26,10 @@
 - **`showContextMenu` 函数**：右键菜单相关代码已清理
 
 ### Fixed
+- **重复事件更新无效**（关键修复）：`api_update_event` 现在正确处理重复事件——检测到 `recurring=True` 时改 `schedules.json` 模板（影响所有 occurrence），而不是改 daily JSON（重复事件不在 daily 文件里）
+- **API 返回 500 错误**（关键修复）：所有 API 处理函数改为返回 `JSONResponse(...)`（Starlette 要求），之前直接返回 dict 导致 `TypeError: 'dict' object is not callable`
+- **部分路由 500 错误**（修复）：`api_list_schedules` 等无参数路由处理函数补充了 `request: Request` 参数（Starlette 要求所有路由处理函数必须接受 request 参数）
+- **`api_list_events` 返回 500**（修复）：改为返回 `JSONResponse(events)` 而不是 `events` list
 - **重复事件时长计算**：新建重复事件（每天/每周/每月/每年）时，现在根据对话框中选择的时间段计算实际时长，不再硬编码 60 分钟
 - **A3 事件锁定 UI**：事件详情对话框新增"锁定/解锁"按钮，锁定后事件不可被重复事件展开覆盖
 - **A4 重复事件管理 UI**：设置对话框新增"重复事件模板"列表，支持启用/禁用/删除模板
