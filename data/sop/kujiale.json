@@ -1,0 +1,37 @@
+{
+  "sop_id": "kujiale",
+  "name": "酷家乐绘图流程",
+  "version": "1.0",
+  "steps": [
+    {
+      "step_id": "receive",
+      "name": "接单",
+      "description": "接收客户订单，确认户型图和设计要求",
+      "est_min": 5
+    },
+    {
+      "step_id": "wall",
+      "name": "绘制墙体",
+      "description": "根据户型图绘制墙体结构",
+      "est_min": 15
+    },
+    {
+      "step_id": "furniture",
+      "name": "放置家具",
+      "description": "从素材库拖放家具模型",
+      "est_min": 20
+    },
+    {
+      "step_id": "color",
+      "name": "调色",
+      "description": "选择墙面和家具颜色",
+      "est_min": 10
+    },
+    {
+      "step_id": "render",
+      "name": "渲染导出",
+      "description": "设置渲染参数并导出图片",
+      "est_min": 10
+    }
+  ]
+}

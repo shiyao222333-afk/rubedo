@@ -41,11 +41,10 @@ def index():
         #detail-panel {
             display: flex;
             flex-direction: column;
-            height: 300px;
+            flex: 0 0 300px;
             background: #16213e;
             border-top: 1px solid #0f3460;
             overflow: hidden;
-            flex-shrink: 0;
         }
         #detail-panel.hide {
             display: none;
