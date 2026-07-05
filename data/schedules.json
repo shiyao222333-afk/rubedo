@@ -18,5 +18,26 @@
     "scope": "yearly",
     "year": 0,
     "enabled": true
+  },
+  {
+    "id": "schedule-72b022bc",
+    "title": "📋 接单",
+    "repeat_mode": "daily",
+    "target_type": "",
+    "target_id": "",
+    "target_date": "",
+    "target_name": "",
+    "preheat_days": 7,
+    "start_date": "2026-07-04",
+    "start_time": "17:00",
+    "duration_minutes": 60,
+    "kind": "sop",
+    "sop_page": "",
+    "description": "",
+    "reminder": "at_time",
+    "exec_mode": "manual",
+    "scope": "yearly",
+    "year": 0,
+    "enabled": true
   }
 ]

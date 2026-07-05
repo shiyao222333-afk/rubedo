@@ -411,6 +411,17 @@
                 var endStr   = endInput.value   ? endInput.value + ":00"   : (end.toString   ? end.toString()   : new Date(end).toISOString());
                 if (!title) { alert("请输入标题"); return; }
 
+                // 从开始/结束时间计算实际时长（分钟）
+                var durMinutes = 60;
+                if (startInput.value && endInput.value) {
+                    var startH = parseInt(startInput.value.slice(11,13)) || 0;
+                    var startM = parseInt(startInput.value.slice(14,16)) || 0;
+                    var endH = parseInt(endInput.value.slice(11,13)) || 0;
+                    var endM = parseInt(endInput.value.slice(14,16)) || 0;
+                    var diff = (endH * 60 + endM) - (startH * 60 + startM);
+                    if (diff > 0) durMinutes = diff;
+                }
+
                 // Handle preheat mode
                 if (repeat === "preheat") {
                     var targetSelect = document.getElementById("dlg-preheat-target");
@@ -435,7 +446,7 @@
                         target_name: targetName,
                         preheat_days: preheatDays,
                         start_time: startInput.value ? startInput.value.slice(11,16) : "09:00",
-                        duration_minutes: 60,
+                        duration_minutes: durMinutes,
                         kind: kind,
                         description: desc,
                         reminder: reminder,
@@ -478,7 +489,7 @@
                         repeat_mode: repeat,
                         start_date: startDateStr,
                         start_time: startTimeStr,
-                        duration_minutes: 60,
+                        duration_minutes: durMinutes,
                         kind: kind,
                         description: desc,
                         reminder: reminder,
