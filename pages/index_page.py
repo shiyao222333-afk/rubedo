@@ -39,16 +39,108 @@ def index():
             min-height: 0;
         }
         #detail-panel {
-            display: none;
-            background: #16213e;
-            border-top: 1px solid #0f3460;
-            overflow: auto;
-            flex-shrink: 0;
-        }
-        #detail-panel.show {
             display: flex;
             flex-direction: column;
-            height: 40vh;
+            height: 300px;
+            background: #16213e;
+            border-top: 1px solid #0f3460;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        #detail-panel.hide {
+            display: none;
+        }
+        #sop-empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #666;
+            font-size: 14px;
+        }
+        #sop-content {
+            display: none;
+            flex-direction: column;
+            height: 100%;
+        }
+        #sop-content.show {
+            display: flex;
+        }
+        #sop-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 16px;
+            border-bottom: 1px solid #0f3460;
+            flex-shrink: 0;
+        }
+        #sop-name {
+            font-size: 14px;
+            font-weight: bold;
+            color: #e94560;
+        }
+        #sop-progress {
+            font-size: 12px;
+            color: #aaa;
+        }
+        #sop-progress-bar {
+            width: 100px;
+            height: 4px;
+            background: #0f3460;
+            border-radius: 2px;
+            overflow: hidden;
+            display: inline-block;
+            vertical-align: middle;
+            margin-left: 8px;
+        }
+        #sop-progress-fill {
+            height: 100%;
+            background: #e94560;
+            transition: width 0.3s;
+        }
+        #sop-steps {
+            display: flex;
+            gap: 4px;
+            padding: 8px 16px;
+            border-bottom: 1px solid #0f3460;
+            overflow-x: auto;
+            flex-shrink: 0;
+        }
+        .sop-step {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 6px;
+            background: #1a1a2e;
+            border: 1px solid #0f3460;
+            cursor: pointer;
+            white-space: nowrap;
+            font-size: 12px;
+            color: #aaa;
+            transition: all 0.2s;
+        }
+        .sop-step:hover {
+            border-color: #e94560;
+            color: #eee;
+        }
+        .sop-step.active {
+            background: #0f3460;
+            border-color: #e94560;
+            color: #e94560;
+            font-weight: bold;
+        }
+        .sop-step.done {
+            border-color: #2ecc71;
+            color: #2ecc71;
+        }
+        .sop-step-status {
+            font-size: 14px;
+        }
+        #sop-tool-area {
+            flex: 1;
+            overflow: auto;
+            padding: 16px;
         }
         #detail-loading {
             text-align: center;
@@ -164,6 +256,16 @@ def index():
     ui.html("""<div class="main-layout">
         <div id="calendar"></div>
         <div id="detail-panel">
+            <div id="sop-empty">⚙️ 请点击日历事件加载 SOP</div>
+            <div id="sop-content">
+                <div id="sop-header">
+                    <span id="sop-name"></span>
+                    <span id="sop-progress"></span>
+                    <div id="sop-progress-bar"><div id="sop-progress-fill"></div></div>
+                </div>
+                <div id="sop-steps"></div>
+                <div id="sop-tool-area"></div>
+            </div>
             <div id="detail-loading" style="display:none;text-align:center;padding:40px;color:#888;">
                 ⏳ 加载中...
             </div>

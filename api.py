@@ -736,6 +736,72 @@ async def api_list_special_days(request: Request):
         return JSONResponse({"ok": False, "error": str(e)})
 
 
+# ====== SOP API Routes ======
+
+async def api_get_sop(request: Request):
+    """Get SOP JSON by sop_id."""
+    try:
+        sop_id = request.path_params["sop_id"]
+        sop_file = DATA_DIR / "sop" / f"{sop_id}.json"
+        
+        if not sop_file.exists():
+            return JSONResponse({"ok": False, "error": f"SOP {sop_id} 不存在"})
+        
+        with open(sop_file, "r", encoding="utf-8") as f:
+            sop_data = json.load(f)
+        
+        return JSONResponse({"ok": True, "sop": sop_data})
+    except Exception as e:
+        print(f"[ERROR] api_get_sop: {e}")
+        import traceback; traceback.print_exc()
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+# ====== Event SOP Step API Routes ======
+
+async def api_update_sop_step(request: Request):
+    """Update event's sop_current_step."""
+    try:
+        event_id = request.path_params["event_id"]
+        data = await request.json()
+        new_step = data.get("step")
+        
+        if new_step is None:
+            return JSONResponse({"ok": False, "error": "缺少 step 参数"})
+        
+        # 找到事件并更新 sop_current_step
+        # 事件按天存储，需要遍历所有日期文件
+        found = False
+        for day_file in DATA_DIR.glob("*.json"):
+            if day_file.name == "settings.json" or day_file.name.startswith("sop_"):
+                continue
+            try:
+                with open(day_file, "r", encoding="utf-8") as f:
+                    events = json.load(f)
+                
+                for ev in events:
+                    if ev.get("id") == event_id:
+                        ev["sop_current_step"] = new_step
+                        found = True
+                        break
+                
+                if found:
+                    with open(day_file, "w", encoding="utf-8") as f:
+                        json.dump(events, f, ensure_ascii=False, indent=2)
+                    break
+            except Exception:
+                continue
+        
+        if not found:
+            return JSONResponse({"ok": False, "error": f"事件 {event_id} 未找到"})
+        
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        print(f"[ERROR] api_update_sop_step: {e}")
+        import traceback; traceback.print_exc()
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
 # ====== Route Registration ======
 
 def register_api_routes(app):
@@ -751,6 +817,7 @@ def register_api_routes(app):
     app.router.add_route("/api/events/move",          api_move_event,           methods=["POST"])
     app.router.add_route("/api/events/delete",        api_delete_event,         methods=["POST"])
     app.router.add_route("/api/events/lock",          api_lock_event,           methods=["POST"])
+    app.router.add_route("/api/events/{event_id}/sop-step", api_update_sop_step,  methods=["POST"])
 
     # Cell backgrounds
     app.router.add_route("/api/cell-backgrounds",     api_cell_backgrounds,     methods=["GET"])
@@ -772,6 +839,9 @@ def register_api_routes(app):
     app.router.add_route("/api/schedules/{schedule_id}", api_get_schedule,       methods=["GET"])
     app.router.add_route("/api/schedules/{schedule_id}/occurrence-status", api_set_occurrence_status, methods=["POST"])
     app.router.add_route("/api/schedules/{schedule_id}/occurrence-lock",  api_set_occurrence_lock,   methods=["POST"])
+
+    # SOP
+    app.router.add_route("/api/sop/{sop_id}",        api_get_sop,             methods=["GET"])
 
     # Special days
     app.router.add_route("/api/special-days",         api_list_special_days,     methods=["GET"])

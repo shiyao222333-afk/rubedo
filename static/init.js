@@ -103,18 +103,113 @@
             }
         };
 
-        // ---- 注册 SOP 渲染器（iframe 嵌入）----
+        // ---- 注册 SOP 渲染器（步骤导航 + 工具区）----
         window.DetailPanel.register('sop', function(event, container) {
             var sopId = event.sop_id || 'kujiale';
             window.DetailPanel._currentEvent = event;
-            window.DetailPanel.showContent(`
-                <div class="detail-header">
-                    <span class="detail-title">${event.text || 'SOP'}</span>
-                    <span class="detail-kind" style="background:#0f3460;color:#e94560;padding:4px 10px;border-radius:12px;font-size:12px;">SOP</span>
-                </div>
-                <iframe src="/sop/${sopId}" style="width:100%;height:calc(100% - 50px);border:none;background:#1a1a2e;"></iframe>
-            `);
+            
+            // 隐藏空提示，显示 SOP 内容
+            document.getElementById('sop-empty').style.display = 'none';
+            document.getElementById('sop-content').classList.add('show');
+            
+            // 获取 SOP JSON
+            fetch('/api/sop/' + sopId)
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.ok) {
+                        document.getElementById('sop-tool-area').innerHTML = '<div style="color:#e94560;padding:20px;">加载 SOP 失败：' + (data.error || '未知错误') + '</div>';
+                        return;
+                    }
+                    
+                    var sop = data.sop;
+                    var currentStep = event.sop_current_step || 0;
+                    
+                    // 设置 SOP 名称
+                    document.getElementById('sop-name').textContent = sop.name || 'SOP';
+                    
+                    // 计算进度
+                    var totalSteps = sop.steps ? sop.steps.length : 0;
+                    var doneSteps = currentStep; // 简化：当前步骤之前的都算完成
+                    var progressPct = totalSteps > 0 ? Math.round(doneSteps / totalSteps * 100) : 0;
+                    document.getElementById('sop-progress').textContent = doneSteps + '/' + totalSteps;
+                    document.getElementById('sop-progress-fill').style.width = progressPct + '%';
+                    
+                    // 渲染步骤导航条
+                    var stepsContainer = document.getElementById('sop-steps');
+                    stepsContainer.innerHTML = '';
+                    
+                    if (sop.steps) {
+                        sop.steps.forEach(function(step, idx) {
+                            var stepEl = document.createElement('div');
+                            stepEl.className = 'sop-step';
+                            if (idx === currentStep) stepEl.classList.add('active');
+                            if (idx < currentStep) stepEl.classList.add('done');
+                            
+                            var statusIcon = idx < currentStep ? '✓' : (idx === currentStep ? '▶' : '⏳');
+                            
+                            stepEl.innerHTML = '<span class="sop-step-status">' + statusIcon + '</span><span>' + (step.name || '步骤' + (idx + 1)) + '</span>';
+                            
+                            stepEl.onclick = function() {
+                                // 切换当前步骤高亮
+                                stepsContainer.querySelectorAll('.sop-step').forEach(function(el) {
+                                    el.classList.remove('active');
+                                });
+                                stepEl.classList.add('active');
+                                
+                                // 显示工具区（占位）
+                                window.DetailPanel._showStepTool(sop, step, idx);
+                            };
+                            
+                            stepsContainer.appendChild(stepEl);
+                        });
+                    }
+                    
+                    // 默认显示第一个步骤的工具区
+                    if (sop.steps && sop.steps.length > 0) {
+                        window.DetailPanel._showStepTool(sop, sop.steps[currentStep], currentStep);
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('sop-tool-area').innerHTML = '<div style="color:#e94560;padding:20px;">加载 SOP 失败：' + err + '</div>';
+                });
         });
+        
+        // ---- 显示步骤工具区（占位）----
+        window.DetailPanel._showStepTool = function(sop, step, stepIdx) {
+            var toolArea = document.getElementById('sop-tool-area');
+            toolArea.innerHTML = `
+                <div style="color:#aaa;font-size:13px;margin-bottom:12px;">步骤 ${stepIdx + 1} / ${sop.steps.length}</div>
+                <div style="font-size:16px;font-weight:bold;color:#eee;margin-bottom:8px;">${step.name || '无标题'}</div>
+                <div style="font-size:13px;color:#ccc;line-height:1.6;margin-bottom:20px;padding:12px;background:#1a1a2e;border-radius:8px;">${step.description || '无描述'}</div>
+                <div style="display:flex;gap:10px;">
+                    <button onclick="window.DetailPanel._markStepDone(${stepIdx})" style="padding:8px 16px;border:1px solid #0f3460;border-radius:6px;background:#0f3460;color:#eee;cursor:pointer;font-size:13px;">
+                        ${stepIdx < (window.DetailPanel._currentEvent.sop_current_step || 0) ? '已完成 ✓' : '标记完成'}
+                    </button>
+                </div>
+            `;
+        };
+        
+        // ---- 标记步骤完成 ----
+        window.DetailPanel._markStepDone = function(stepIdx) {
+            var event = window.DetailPanel._currentEvent;
+            if (!event) return;
+            
+            // 调用 API 更新 sop_current_step
+            fetch('/api/events/' + event.id + '/sop-step', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({step: stepIdx + 1})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    // 刷新详情面板
+                    window.DetailPanel.show(event);
+                    // 刷新日历
+                    if (window.dp) window.dp.loadEvents();
+                }
+            });
+        };
 
         // ---- 注册默认渲染器（普通事件 HTML 注入）----
         window.DetailPanel.register('default', function(event, container) {
