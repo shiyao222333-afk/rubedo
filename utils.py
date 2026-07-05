@@ -10,6 +10,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+from filelock import FileLock  # 添加文件锁（防止并发读写数据损坏）
+
 # ====== Paths ======
 BASE_DIR  = Path(__file__).parent
 DATA_DIR  = BASE_DIR / "data"
@@ -34,29 +36,38 @@ SCHEDULES_FILE = DATA_DIR / "schedules.json"
 OCCURRENCE_OVERRIDES_FILE = DATA_DIR / "occurrence_overrides.json"
 
 # ====== Schedules I/O ======
+def _lock_for(path: Path) -> FileLock:
+    """Return a FileLock for the given path."""
+    return FileLock(str(path) + ".lock", timeout=5)
+
 def read_schedules() -> list[dict]:
     """Read all schedule templates."""
     if not SCHEDULES_FILE.exists():
         return []
     try:
-        data = json.loads(SCHEDULES_FILE.read_text(encoding="utf-8"))
-        if isinstance(data, list):
-            return data
-        return []
-    except (json.JSONDecodeError, OSError):
+        with _lock_for(SCHEDULES_FILE):
+            data = json.loads(SCHEDULES_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return data
+            return []
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"[WARN] read_schedules: {e}")
         return []
 
 def write_schedules(schedules: list[dict]) -> None:
     """Write schedule templates."""
-    SCHEDULES_FILE.write_text(json.dumps(schedules, ensure_ascii=False, indent=2), encoding="utf-8")
+    with _lock_for(SCHEDULES_FILE):
+        SCHEDULES_FILE.write_text(json.dumps(schedules, ensure_ascii=False, indent=2), encoding="utf-8")
 
 def read_occurrence_overrides() -> dict:
     """Read all occurrence overrides."""
     if not OCCURRENCE_OVERRIDES_FILE.exists():
         return {}
     try:
-        return json.loads(OCCURRENCE_OVERRIDES_FILE.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        with _lock_for(OCCURRENCE_OVERRIDES_FILE):
+            return json.loads(OCCURRENCE_OVERRIDES_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"[WARN] read_occurrence_overrides: {e}")
         return {}
 
 def write_occurrence_override(
@@ -69,24 +80,33 @@ def write_occurrence_override(
     deleted: bool = None
 ) -> None:
     """Write an override for a recurring event occurrence."""
-    all_overrides = read_occurrence_overrides()
-    overrides = all_overrides.get(date_str, {})
-    override = overrides.get(event_id, {})
-    if status is not None:
-        override["status"] = status
-    if locked is not None:
-        override["locked"] = locked
-    if start is not None:
-        override["start"] = start
-    if end is not None:
-        override["end"] = end
-    if deleted is not None:
-        override["deleted"] = deleted
-    overrides[event_id] = override
-    all_overrides[date_str] = overrides
-    OCCURRENCE_OVERRIDES_FILE.write_text(
-        json.dumps(all_overrides, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    with _lock_for(OCCURRENCE_OVERRIDES_FILE):
+        # 直接读文件，不调用 read_occurrence_overrides()（避免死锁）
+        if OCCURRENCE_OVERRIDES_FILE.exists():
+            try:
+                all_overrides = json.loads(OCCURRENCE_OVERRIDES_FILE.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                all_overrides = {}
+        else:
+            all_overrides = {}
+        
+        overrides = all_overrides.get(date_str, {})
+        override = overrides.get(event_id, {})
+        if status is not None:
+            override["status"] = status
+        if locked is not None:
+            override["locked"] = locked
+        if start is not None:
+            override["start"] = start
+        if end is not None:
+            override["end"] = end
+        if deleted is not None:
+            override["deleted"] = deleted
+        overrides[event_id] = override
+        all_overrides[date_str] = overrides
+        OCCURRENCE_OVERRIDES_FILE.write_text(
+            json.dumps(all_overrides, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
 # ====== Events I/O ======
 def daily_file(day: date) -> Path:
@@ -99,13 +119,18 @@ def read_day(day: date) -> list[dict]:
     if not f.exists():
         return []
     try:
-        return json.loads(f.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        # 加读锁（实际上 filelock 只支持排他锁，所以这里也加排他锁）
+        with _lock_for(f):
+            return json.loads(f.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"[WARN] read_day: {e}")
         return []
 
 def write_day(day: date, events: list[dict]) -> None:
     """Write events for a specific day."""
-    daily_file(day).write_text(json.dumps(events, ensure_ascii=False, indent=2), encoding="utf-8")
+    f = daily_file(day)
+    with _lock_for(f):
+        f.write_text(json.dumps(events, ensure_ascii=False, indent=2), encoding="utf-8")
 
 # ====== Timelog I/O ======
 def timelog_file(day: date) -> Path:
@@ -118,16 +143,27 @@ def read_timelog(day: date) -> list[dict]:
     if not f.exists():
         return []
     try:
-        return json.loads(f.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        with _lock_for(f):
+            return json.loads(f.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"[WARN] read_timelog: {e}")
         return []
 
 def write_timelog_entry(entry: dict) -> None:
     """Append a timelog entry to today's file."""
     today = date.today()
-    entries = read_timelog(today)
-    entries.append(entry)
-    timelog_file(today).write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+    f = timelog_file(today)
+    with _lock_for(f):
+        # 直接读文件，不调用 read_timelog()（避免死锁）
+        if f.exists():
+            try:
+                entries = json.loads(f.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                entries = []
+        else:
+            entries = []
+        entries.append(entry)
+        f.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
 
 def all_timelog_in_range(start: date, end: date) -> list[dict]:
     """Read all timelog entries in a date range."""
@@ -211,7 +247,8 @@ def get_special_days(year: int) -> dict:
                         "date": h_date_str,
                         "type": "custom_holiday"
                     })
-        except Exception:
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"[WARN] Failed to read custom holidays: {e}")
             pass
     
     return result

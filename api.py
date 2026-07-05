@@ -6,6 +6,7 @@ Rubedo · 凝华 — API 路由模块
 修复：所有 API 处理函数返回 JSONResponse（Starlette 要求）
 """
 
+import traceback
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -22,7 +23,8 @@ from utils import (
     get_special_days, strip_icon, DATA_DIR, SCHEDULES_FILE, OCCURRENCE_OVERRIDES_FILE
 )
 from holidays import (
-    fetch_holidays, get_all_festivals_for_year, generate_overlay_events
+    fetch_holidays, get_all_festivals_for_year, generate_overlay_events,
+    get_solar_terms_for_year, SEMESTER_RANGES
 )
 
 
@@ -32,6 +34,34 @@ async def api_create_event(request: Request):
     """Create a new event."""
     try:
         data = await request.json()
+        
+        # ---- 输入验证 ----
+        # 必需字段
+        if "start" not in data:
+            return JSONResponse({"ok": False, "error": "缺少必需字段: start"})
+        if "end" not in data:
+            return JSONResponse({"ok": False, "error": "缺少必需字段: end"})
+        
+        # 时间格式和逻辑
+        try:
+            start_dt = datetime.fromisoformat(data["start"])
+            end_dt   = datetime.fromisoformat(data["end"])
+        except ValueError:
+            return JSONResponse({"ok": False, "error": "时间格式错误，请使用 ISO 格式 (YYYY-MM-DDTHH:MM:SS)"})
+        
+        if start_dt >= end_dt:
+            return JSONResponse({"ok": False, "error": "开始时间必须早于结束时间"})
+        
+        # 枚举值验证
+        kind = data.get("kind", "reminder")
+        if kind not in KIND_COLORS:
+            return JSONResponse({"ok": False, "error": f"无效的事件类型: {kind}"})
+        
+        exec_mode = data.get("exec_mode", "manual")
+        if exec_mode not in EXEC_MODES:
+            return JSONResponse({"ok": False, "error": f"无效的执行模式: {exec_mode}"})
+        
+        # ---- 创建事件 ----
         day = date.fromisoformat(data["start"][:10])
         events = read_day(day)
         new_id = str(uuid4())
@@ -40,17 +70,28 @@ async def api_create_event(request: Request):
             "text":        data.get("text", ""),
             "start":       data["start"],
             "end":         data["end"],
-            "kind":        data.get("kind", "reminder"),
+            "kind":        kind,
             "description": data.get("description", ""),
             "reminder":    data.get("reminder", "none"),
-            "exec_mode":   data.get("exec_mode", "manual"),
+            "exec_mode":   exec_mode,
             "status":      "pending",
             "locked":      False,
         }
         events.append(event)
         write_day(day, events)
         return JSONResponse({"ok": True, "id": new_id, "event": event})
+    except json.JSONDecodeError as e:
+        print(f"[ERROR] api_create_event: JSON decode error: {e}")
+        return JSONResponse({"ok": False, "error": "Invalid JSON"})
+    except KeyError as e:
+        print(f"[ERROR] api_create_event: Missing key: {e}")
+        return JSONResponse({"ok": False, "error": f"Missing required field: {e}"})
+    except ValueError as e:
+        print(f"[ERROR] api_create_event: Value error: {e}")
+        return JSONResponse({"ok": False, "error": f"Invalid value: {e}"})
     except Exception as e:
+        print(f"[ERROR] api_create_event: Unexpected error: {e}")
+        traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -114,7 +155,18 @@ async def api_update_event(request: Request):
                 break
         write_day(day, events)
         return JSONResponse({"ok": True})
+    except json.JSONDecodeError as e:
+        print(f"[ERROR] api_update_event: JSON decode error: {e}")
+        return JSONResponse({"ok": False, "error": "Invalid JSON"})
+    except KeyError as e:
+        print(f"[ERROR] api_update_event: Missing key: {e}")
+        return JSONResponse({"ok": False, "error": f"Missing required field: {e}"})
+    except ValueError as e:
+        print(f"[ERROR] api_update_event: Value error: {e}")
+        return JSONResponse({"ok": False, "error": f"Invalid value: {e}"})
     except Exception as e:
+        print(f"[ERROR] api_update_event: Unexpected error: {e}")
+        traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -133,7 +185,9 @@ async def api_list_events(request: Request):
         recurring_events = expand_recurring_schedules(start, end)
         events.extend(recurring_events)
         return JSONResponse(events)
-    except Exception:
+    except Exception as e:
+        print(f"[ERROR] api_list_events: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse([])
 
 
@@ -150,6 +204,8 @@ async def api_update_status(request: Request):
         write_day(day, events)
         return JSONResponse({"ok": True})
     except Exception as e:
+        print(f"[ERROR] api_update_status: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -174,6 +230,8 @@ async def api_move_event(request: Request):
             write_day(new_day, new_events)
         return JSONResponse({"ok": True, "event": moved})
     except Exception as e:
+        print(f"[ERROR] api_move_event: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -187,6 +245,8 @@ async def api_delete_event(request: Request):
         write_day(day, events)
         return JSONResponse({"ok": True})
     except Exception as e:
+        print(f"[ERROR] api_delete_event: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -203,6 +263,8 @@ async def api_lock_event(request: Request):
         write_day(day, events)
         return JSONResponse({"ok": True})
     except Exception as e:
+        print(f"[ERROR] api_lock_event: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -229,7 +291,7 @@ async def api_cell_backgrounds(request: Request):
             raw[ds].append((PRIORITY[ptype], COLORS[ptype], text, ptype))
 
         # 1. 节气
-        for name, mmdd in SOLAR_TERMS_2025:
+        for name, mmdd in get_solar_terms_for_year(year):
             m, d = int(mmdd[:2]), int(mmdd[3:])
             try:
                 term_date = date(year, m, d)
@@ -298,7 +360,9 @@ async def api_cell_backgrounds(request: Request):
                             add(h_date_str, "custom", f"\U0001F4C5 {h_name}")
                     except (ValueError, TypeError):
                         pass
-            except Exception:
+            except Exception as e:
+                print(f"[ERROR] api_cell_backgrounds: {e}")
+                import traceback; traceback.print_exc()
                 pass
 
         dates = {}
@@ -314,7 +378,9 @@ async def api_cell_backgrounds(request: Request):
             }
 
         return JSONResponse({"dates": dates})
-    except Exception:
+    except Exception as e:
+        print(f"[ERROR] api_cell_backgrounds: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"dates": {}})
 
 
@@ -339,6 +405,8 @@ async def api_write_timelog(request: Request):
         write_timelog_entry(entry)
         return JSONResponse({"ok": True, "entry": entry})
     except Exception as e:
+        print(f"[ERROR] api_write_timelog: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -360,6 +428,8 @@ async def api_timelog_report(request: Request):
 
         return JSONResponse({"ok": True, "stats": stats, "entries": entries})
     except Exception as e:
+        print(f"[ERROR] api_timelog_report: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -376,6 +446,8 @@ async def api_list_custom_holidays(request: Request):
             return JSONResponse({"ok": True, "holidays": data})
         return JSONResponse({"ok": True, "holidays": []})
     except Exception as e:
+        print(f"[ERROR] api_list_custom_holidays: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -398,6 +470,8 @@ async def api_add_custom_holiday(request: Request):
             json.dump(holidays, f, ensure_ascii=False, indent=2)
         return JSONResponse({"ok": True})
     except Exception as e:
+        print(f"[ERROR] api_add_custom_holiday: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -418,6 +492,8 @@ async def api_delete_custom_holiday(request: Request):
             json.dump(holidays, f, ensure_ascii=False, indent=2)
         return JSONResponse({"ok": True})
     except Exception as e:
+        print(f"[ERROR] api_delete_custom_holiday: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -429,6 +505,8 @@ async def api_list_schedules(request: Request):
         schedules = read_schedules()
         return JSONResponse({"ok": True, "schedules": schedules})
     except Exception as e:
+        print(f"[ERROR] api_list_schedules: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -463,6 +541,8 @@ async def api_create_schedule(request: Request):
         write_schedules(schedules)
         return JSONResponse({"ok": True, "id": new_id, "schedule": schedule})
     except Exception as e:
+        print(f"[ERROR] api_create_schedule: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -484,6 +564,8 @@ async def api_update_schedule(schedule_id: str, request: Request):
         write_schedules(schedules)
         return JSONResponse({"ok": True})
     except Exception as e:
+        print(f"[ERROR] api_update_schedule: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -495,6 +577,8 @@ async def api_delete_schedule(schedule_id: str):
         write_schedules(schedules)
         return JSONResponse({"ok": True})
     except Exception as e:
+        print(f"[ERROR] api_delete_schedule: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -507,6 +591,8 @@ async def api_get_schedule(schedule_id: str):
                 return JSONResponse({"ok": True, "schedule": sch})
         return JSONResponse({"ok": False, "error": "Schedule not found"})
     except Exception as e:
+        print(f"[ERROR] api_get_schedule: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -520,6 +606,8 @@ async def api_set_occurrence_status(schedule_id: str, request: Request):
         write_occurrence_override(date_str, event_id, status=status)
         return JSONResponse({"ok": True})
     except Exception as e:
+        print(f"[ERROR] api_set_occurrence_status: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -533,6 +621,8 @@ async def api_set_occurrence_lock(schedule_id: str, request: Request):
         write_occurrence_override(date_str, event_id, locked=locked)
         return JSONResponse({"ok": True})
     except Exception as e:
+        print(f"[ERROR] api_set_occurrence_lock: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -546,6 +636,8 @@ async def api_list_special_days(request: Request):
         special_days = get_special_days(year)
         return JSONResponse({"ok": True, "special_days": special_days})
     except Exception as e:
+        print(f"[ERROR] api_list_special_days: {e}")
+        import traceback; traceback.print_exc()
         return JSONResponse({"ok": False, "error": str(e)})
 
 
