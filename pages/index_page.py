@@ -34,7 +34,7 @@ def index():
         }
         #calendar {
             width: calc(100% - 32px);
-            flex: 1;
+            height: calc(100vh - 300px - 40px);
             margin: 16px;
             min-height: 0;
         }

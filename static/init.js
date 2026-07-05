@@ -291,6 +291,7 @@
             dayEndHour:   24,
             headerHeight: 40,
             locale:        "zh-cn",
+            height:        "auto",
             timeRangeSelectedHandling: "JavaScript",
 
             onTimeRangeSelected: function(args) {
