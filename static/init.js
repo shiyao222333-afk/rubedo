@@ -39,6 +39,7 @@
             },
 
             show: function(event) {
+                console.log('DetailPanel.show:', event.kind, event.text);
                 if (!this.container) this.init();
                 this.container.classList.add('show');
                 document.getElementById('detail-loading').style.display = 'block';
@@ -195,6 +196,7 @@
 
             eventClickHandling: "JavaScript",
             onEventClick: function(args) {
+                console.log('onEventClick:', args.e);
                 var ev = normalizeEvent(args.e);
                 // 显示详情面板（根据事件类型自动选择渲染器）
                 if (window.DetailPanel) {

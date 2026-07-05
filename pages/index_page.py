@@ -34,20 +34,21 @@ def index():
         }
         #calendar {
             width: calc(100% - 32px);
-            height: calc(100vh - 120px);
+            flex: 1;
             margin: 16px;
-            flex-shrink: 0;
+            min-height: 0;
         }
         #detail-panel {
             display: none;
-            height: 40vh;
             background: #16213e;
             border-top: 1px solid #0f3460;
             overflow: auto;
             flex-shrink: 0;
         }
         #detail-panel.show {
-            display: block;
+            display: flex;
+            flex-direction: column;
+            height: 40vh;
         }
         #detail-loading {
             text-align: center;
