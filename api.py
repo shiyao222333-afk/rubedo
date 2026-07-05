@@ -6,6 +6,7 @@ Rubedo · 凝华 — API 路由模块
 修复：所有 API 处理函数返回 JSONResponse（Starlette 要求）
 """
 
+import json
 import traceback
 from datetime import date, datetime, timedelta
 from pathlib import Path
