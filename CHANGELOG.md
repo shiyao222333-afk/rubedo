@@ -26,6 +26,12 @@
 - **`showContextMenu` 函数**：右键菜单相关代码已清理
 
 ### Fixed
+- **并发安全**：所有文件 I/O（`read_day`, `write_day`, `read_schedules`, `write_schedules`, `read_occurrence_overrides`, `write_occurrence_override`, `read_timelog`, `write_timelog_entry`）添加 `filelock` 锁，防止多请求并发写入数据损坏
+- **异常处理**：所有 API 路由的 `except Exception` 块添加错误日志（`print` + `traceback.print_exc()`），方便调试
+- **硬编码年份修复**：`holidays.py` 中 `SOLAR_TERMS_2025` 改为 `SOLAR_TERMS_BY_YEAR`（支持 2024-2026 年），`api.py` 同步更新
+- **输入验证**：关键 API 端点添加输入验证（`api_create_event`, `api_update_event`, `api_write_timelog`, `api_add_custom_holiday`）
+- **时间选择联动（新建对话框）**：开始时间变化自动调整结束时间（如果结束时间更早或为空）
+- **时间选择联动（编辑对话框）**：日期输入框加联动（`syncEndDateMin()`, `syncStartDateMax()`），结束日期不能早于开始日期
 - **时间选择联动修复**（编辑对话框）：`syncEndTimeMin()` 和 `syncStartTimeMax()` 现在在重刷选项后自动修正无效选择（结束时间早于开始时间时自动选第一个合法选项，开始时间晚于结束时间时自动选最后一个合法选项）
 - **新建对话框时间校验**（新建对话框）：新增时间校验——保存时检查结束时间必须晚于开始时间，否则 alert 并拒绝保存（之前无校验，`diff<=0` 时默认 60 分钟，导致可创建非法事件）
 - **重复事件更新无效**（关键修复）：`api_update_event` 现在正确处理重复事件——检测到 `recurring=True` 时改 `schedules.json` 模板（影响所有 occurrence），而不是改 daily JSON（重复事件不在 daily 文件里）
