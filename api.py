@@ -636,9 +636,10 @@ async def api_create_schedule(request: Request):
         return JSONResponse({"ok": False, "error": str(e)})
 
 
-async def api_update_schedule(schedule_id: str, request: Request):
+async def api_update_schedule(request: Request):
     """Update a schedule template."""
     try:
+        schedule_id = request.path_params["schedule_id"]
         data = await request.json()
         schedules = read_schedules()
         for sch in schedules:
@@ -659,9 +660,10 @@ async def api_update_schedule(schedule_id: str, request: Request):
         return JSONResponse({"ok": False, "error": str(e)})
 
 
-async def api_delete_schedule(schedule_id: str):
+async def api_delete_schedule(request: Request):
     """Delete a schedule template."""
     try:
+        schedule_id = request.path_params["schedule_id"]
         schedules = read_schedules()
         schedules = [s for s in schedules if s["id"] != schedule_id]
         write_schedules(schedules)
@@ -672,9 +674,10 @@ async def api_delete_schedule(schedule_id: str):
         return JSONResponse({"ok": False, "error": str(e)})
 
 
-async def api_get_schedule(schedule_id: str):
+async def api_get_schedule(request: Request):
     """Get a single schedule template."""
     try:
+        schedule_id = request.path_params["schedule_id"]
         schedules = read_schedules()
         for sch in schedules:
             if sch["id"] == schedule_id:
@@ -686,9 +689,10 @@ async def api_get_schedule(schedule_id: str):
         return JSONResponse({"ok": False, "error": str(e)})
 
 
-async def api_set_occurrence_status(schedule_id: str, request: Request):
+async def api_set_occurrence_status(request: Request):
     """Set completion status for a recurring event occurrence."""
     try:
+        schedule_id = request.path_params["schedule_id"]
         data = await request.json()
         date_str = data.get("date", "")
         status   = data.get("status", "pending")
@@ -701,9 +705,10 @@ async def api_set_occurrence_status(schedule_id: str, request: Request):
         return JSONResponse({"ok": False, "error": str(e)})
 
 
-async def api_set_occurrence_lock(schedule_id: str, request: Request):
+async def api_set_occurrence_lock(request: Request):
     """Set lock status for a recurring event occurrence."""
     try:
+        schedule_id = request.path_params["schedule_id"]
         data = await request.json()
         date_str = data.get("date", "")
         locked   = data.get("locked", False)
