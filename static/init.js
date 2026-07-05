@@ -951,6 +951,14 @@
                 startDateInput.max = endDate;
             };
 
+            // 初始联动：对话框打开时立即过滤不合法选项
+            setTimeout(function() {
+                if (window.syncEndTimeMin) window.syncEndTimeMin();
+                if (window.syncStartTimeMax) window.syncStartTimeMax();
+                if (window.syncEndDateMin) window.syncEndDateMin();
+                if (window.syncStartDateMax) window.syncStartDateMax();
+            }, 0);
+
             overlay.addEventListener("click", function(e) {
                 if (e.target === overlay) overlay.remove();
             });
