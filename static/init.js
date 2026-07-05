@@ -59,16 +59,14 @@
             eventDeleteHandling: "Disabled",
 
             onBeforeEventRender: function(args) {
-                try {
                 var d = args.e.data || {};
                 var isDone = d.status === "done";
                 var isLocked = d.locked;
                 var isReadonly = d.readonly && !d.recurring;
 
-                // 只读事件（节假日/节气）不显示按钮
                 if (isReadonly) return;
 
-                // 根据状态着色
+                // 着色
                 if (isDone) {
                     args.e.backColor = "#4CAF50"; args.e.barColor = "#388E3C";
                 } else if (isLocked) {
@@ -77,33 +75,14 @@
                     args.e.backColor = "#7F77DD"; args.e.barColor = "#6C63FF";
                 }
 
-                // 事件条右侧的行内按钮
-                var btnW = 18, btnH = 18;
-                args.e.areas = [
-                    {
-                        right: 40, top: 5,
-                        width: btnW, height: btnH,
-                        html: isDone ? "✅" : "⬜",
-                        action: "JavaScript",
-                        onClick: function(areaArgs) {
-                            var ev = normalizeEvent(areaArgs.source);
-                            toggleEventStatus(ev);
-                        },
-                        style: "cursor:pointer;font-size:13px;line-height:" + btnH + "px;text-align:center;border-radius:3px;",
-                    },
-                    {
-                        right: 20, top: 5,
-                        width: btnW, height: btnH,
-                        html: isLocked ? "🔒" : "🔓",
-                        action: "JavaScript",
-                        onClick: function(areaArgs) {
-                            var ev = normalizeEvent(areaArgs.source);
-                            toggleEventLock(ev);
-                        },
-                        style: "cursor:pointer;font-size:12px;line-height:" + btnH + "px;text-align:center;border-radius:3px;",
-                    }
-                ];
-                } catch(e) { /* 渲染错误不中断日历 */ }
+                // 在文字后面加状态标记
+                var tag = '';
+                if (isDone) tag = ' ✅';
+                else if (isLocked) tag = ' 🔒';
+                var raw = args.e.text ? String(args.e.text) : '';
+                if (tag && raw.indexOf(tag) === -1) {
+                    args.e.text = raw + tag;
+                }
             },
 
             onBeforeCellRender: function(args) {
@@ -224,7 +203,15 @@
                 menu.appendChild(item);
             }
 
+            var isDone = ev.status === "done";
+
             if (ev.recurring) {
+                addItem(isDone ? "\u2B6C\uFE0F 标记未完成" : "\u2705 标记完成", function() {
+                    toggleEventStatus(ev);
+                });
+                addItem(ev.locked ? "\uD83D\uDD13 解锁" : "\uD83D\uDD12 锁定", function() {
+                    toggleEventLock(ev);
+                });
                 addItem("\u270F\uFE0F 编辑重复计划", function() {
                     // 编辑 schedule 模板
                     fetch("/api/schedules/" + ev.schedule_id)
@@ -247,6 +234,12 @@
                         });
                 });
             } else {
+                addItem(isDone ? "\u2B6C\uFE0F 标记未完成" : "\u2705 标记完成", function() {
+                    toggleEventStatus(ev);
+                });
+                addItem(ev.locked ? "\uD83D\uDD13 解锁" : "\uD83D\uDD12 锁定", function() {
+                    toggleEventLock(ev);
+                });
                 addItem("\u270F\uFE0F 编辑", function() {
                     showEditDialog(ev);
                 });
@@ -1038,7 +1031,7 @@
             html +=   '<hr style="border:none;border-top:1px solid #0f3460;margin:18px 0;">';
 
             // All events management
-            html +=   '<div style="font-size:15px;font-weight:bold;color:#e94560;margin-bottom:12px;">📅 所有事件</div>';
+            html +=   '<div style="font-size:15px;font-weight:bold;color:#e94560;margin-bottom:12px;">📅 一次性事件</div>';
             html +=   '<div style="display:flex;gap:8px;margin-bottom:12px;">';
             html +=     '<input id="event-mgr-search" type="text" placeholder="搜索标题..." style="flex:1;padding:7px 10px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:13px;box-sizing:border-box;">';
             html +=     '<select id="event-mgr-filter" style="padding:7px 10px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:13px;">';
@@ -1167,7 +1160,9 @@
                     .then(function(r) { return r.json(); })
                     .then(function(events) {
                         var list = document.getElementById('event-mgr-list');
-                        if (!events || events.length === 0) {
+                        // 排除重复事件（它们由"重复事件管理"单独管理）
+                        events = (events || []).filter(function(ev) { return !ev.recurring; });
+                        if (events.length === 0) {
                             list.innerHTML = '<div style="font-size:13px;color:#666;">本周暂无事件</div>';
                             return;
                         }
@@ -1187,15 +1182,12 @@
                         var items = '';
                         filtered.forEach(function(ev) {
                             var kindLabel = {"sop":"SOP","tool":"工具","reminder":"提醒","external":"外部","marker":"标记"}[ev.kind] || ev.kind;
-                            var isRecurring = ev.recurring;
                             items += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;border-bottom:1px solid #0f3460;">';
                             items +=   '<div style="flex:1;overflow:hidden;">';
-                            items +=     '<div>' + escapeHtml(ev.text) + ' <span style="font-size:11px;color:#aaa;">[' + kindLabel + (isRecurring ? '·重复' : '') + ']</span></div>';
+                            items +=     '<div>' + escapeHtml(ev.text) + ' <span style="font-size:11px;color:#aaa;">[' + kindLabel + ']</span></div>';
                             items +=     '<div style="font-size:11px;color:#666;">' + (ev.start || '').slice(0,16).replace('T',' ') + '</div>';
                             items +=   '</div>';
-                            if (!isRecurring) {
-                                items += '<button data-id="' + ev.id + '" data-day="' + (ev.start||'').slice(0,10) + '" class="ev-mgr-del" style="padding:3px 10px;background:#f44336;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;">删除</button>';
-                            }
+                            items +=   '<button data-id="' + ev.id + '" data-day="' + (ev.start||'').slice(0,10) + '" class="ev-mgr-del" style="padding:3px 10px;background:#f44336;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;">删除</button>';
                             items += '</div>';
                         });
                         list.innerHTML = items;

@@ -1,1 +1,23 @@
-[]
+[
+  {
+    "id": "schedule-2075350c",
+    "title": "📋 1",
+    "repeat_mode": "daily",
+    "target_type": "",
+    "target_id": "",
+    "target_date": "",
+    "target_name": "",
+    "preheat_days": 7,
+    "start_date": "2026-06-29",
+    "start_time": "17:00",
+    "duration_minutes": 180,
+    "kind": "sop",
+    "sop_page": "",
+    "description": "",
+    "reminder": "none",
+    "exec_mode": "manual",
+    "scope": "yearly",
+    "year": 0,
+    "enabled": true
+  }
+]
