@@ -51,6 +51,14 @@
                 } else {
                     this.showContent('<div style="padding:20px;color:#888;">未知事件类型：' + event.kind + '</div>');
                 }
+                
+                // 强制 DayPilot 重新计算高度（底部面板显示后日历容器变小了）
+                setTimeout(function() {
+                    if (window.dp) {
+                        window.dp.update();
+                        console.log('[DayPilot] update() called after DetailPanel.show');
+                    }
+                }, 100);
             },
 
             showLoading: function() {
@@ -1822,6 +1830,20 @@
         }
 
         dp.init();
+        window.dp = dp;  // 暴露到全局，供 DetailPanel 调用 update()
+        
+        // 窗口 resize 时强制 DayPilot 重新计算高度
+        var _dpUpdateTimer = null;
+        window.addEventListener('resize', function() {
+            if (_dpUpdateTimer) clearTimeout(_dpUpdateTimer);
+            _dpUpdateTimer = setTimeout(function() {
+                if (window.dp) {
+                    window.dp.update();
+                    console.log('[DayPilot] update() called on window resize');
+                }
+            }, 200);
+        });
+        
         loadEvents();
         updateWeekRange();
     });
