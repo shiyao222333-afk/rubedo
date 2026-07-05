@@ -53,6 +53,33 @@
 
             eventDeleteHandling: "Disabled",
 
+            onBeforeEventRender: function(args) {
+                var d = args.data;
+                if (!d) return;
+                if (d.readonly && !d.recurring) return;
+
+                args.data.areas = [
+                    {
+                        right: 40, top: 5, width: 18, height: 18,
+                        html: d.status === "done" ? "\u2705" : "\u2B1C",
+                        action: "None",
+                        onClick: function(areaArgs) {
+                            toggleEventStatus(normalizeEvent(areaArgs.source));
+                        },
+                        visibility: "Visible",
+                    },
+                    {
+                        right: 20, top: 5, width: 18, height: 18,
+                        html: d.locked ? "\uD83D\uDD12" : "\uD83D\uDD13",
+                        action: "None",
+                        onClick: function(areaArgs) {
+                            toggleEventLock(normalizeEvent(areaArgs.source));
+                        },
+                        visibility: "Visible",
+                    }
+                ];
+            },
+
             onBeforeCellRender: function(args) {
                 if (!args.cell || !args.cell.start) return;
                 var ds = cellDateStr(args.cell.start);
