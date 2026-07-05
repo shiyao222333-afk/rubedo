@@ -37,6 +37,7 @@ def index():
             height: calc(100vh - 300px - 40px);
             margin: 16px;
             min-height: 0;
+            overflow: auto;
         }
         #detail-panel {
             display: flex;
