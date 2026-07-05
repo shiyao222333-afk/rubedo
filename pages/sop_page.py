@@ -2,6 +2,7 @@
 Rubedo · 凝华 — SOP 页面
 """
 
+import json
 from nicegui import ui
 from utils import load_sop
 
@@ -111,9 +112,13 @@ def sop_page(sop_id: str):
                         ui.label(f"预估: {step['est_min']} min").classes("text-xs text-yellow-400")
                     # Timer buttons (working)
                     if step.get("exec_mode") == "manual" and step.get("est_min", 0) > 0:
+                        # 用 json.dumps() 转义 JS 字符串（防止单引号/双引号导致的语法错误）
+                        step_name_js = json.dumps(step["name"])
+                        sop_id_js = json.dumps(sop_id)
+                        sop_name_js = json.dumps(sop["name"])
                         btn_html = (
                             f'<button data-timer-btn="1" data-step-name="{step["name"]}" '
-                            f'onclick="window.handleTimerClick(this, \'{step["name"]}\', \'{sop_id}\', \'{sop["name"]}\')" '
+                            f'onclick="window.handleTimerClick(this, {step_name_js}, {sop_id_js}, {sop_name_js})" '
                             f'style="padding:8px 16px;background:#e94560;color:#fff;border:none;border-radius:8px;'
                             f'cursor:pointer;font-size:13px;">开始计时</button>'
                         )

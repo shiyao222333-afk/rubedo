@@ -45,7 +45,9 @@
             onEventClick: function(args) {
                 var ev = normalizeEvent(args.e);
                 if (ev.kind === "sop") {
-                    window.open('/sop/kujiale', '_blank');
+                    // 动态打开 SOP 页面（根据 sop_id）
+                    var sopId = ev.sop_id || 'kujiale';  // 兼容旧数据
+                    window.open('/sop/' + sopId, '_blank');
                 }
                 // 非 SOP 事件：点击空白区域什么都不做
             },
@@ -155,7 +157,8 @@
                 locked:      d.locked       || false,
                 readonly:    d.readonly     || false,
                 recurring:   d.recurring    || false,
-                schedule_id: d.schedule_id  || ''
+                schedule_id: d.schedule_id  || '',
+                sop_id:      d.sop_id      || ''  // 新增：映射 sop_id 字段
             };
         }
 
@@ -688,6 +691,8 @@
                 }
 
                 // Regular event creation
+                // SOP 事件：设置 sop_id（当前仅支持酷家乐）
+                var sopId = (kind === "sop") ? "kujiale" : "";
                 fetch("/api/events/create", {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
@@ -698,7 +703,8 @@
                         kind: kind,
                         description: desc,
                         reminder: reminder,
-                        exec_mode: "manual"
+                        exec_mode: "manual",
+                        sop_id: sopId  // 新增：SOP ID
                     })
                 }).then(async function(r) {
                     if (!r.ok) {
@@ -713,7 +719,7 @@
                         // T4: 创建 SOP 事件后引导到 SOP 页面
                         if (kind === "sop") {
                             if (confirm("✅ SOP 事件已创建！\n\n是否打开 SOP 流程页？")) {
-                                window.open("/sop/kujiale", "_blank");
+                                window.open("/sop/" + sopId, "_blank");
                             }
                         }
                     } else {
@@ -1067,8 +1073,9 @@
             }
             // T6: SOP 事件显示"打开 SOP 流程页"按钮
             if (ev.kind === "sop") {
+                var sopId = ev.sop_id || 'kujiale';  // 兼容旧数据
                 html +=   '<div style="margin-bottom:14px;">';
-                html +=     '<button onclick="window.open(\'/sop/kujiale\', \'_blank\');" style="width:100%;padding:10px;background:#4CAF50;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold;">🚀 打开 SOP 流程页</button>';
+                html +=     '<button onclick="window.open(\'/sop/' + sopId + '\', \'_blank\');" style="width:100%;padding:10px;background:#4CAF50;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold;">🚀 打开 SOP 流程页</button>';
                 html +=   '</div>';
             }
             html +=   '<div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">';

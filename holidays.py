@@ -148,14 +148,12 @@ def fetch_holidays(year: int) -> dict:
 
     # API call — only once per year per session
     def _do_api_call():
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
         url = f"https://timor.tech/api/holiday/year/{year}"
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Rubedo-Calendar/1.0"
         })
-        with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
+        # 使用默认 SSL 上下文（会验证证书）
+        with urllib.request.urlopen(req, timeout=5) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
     last_error = None
