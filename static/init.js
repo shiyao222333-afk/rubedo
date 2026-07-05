@@ -43,7 +43,12 @@
 
             eventClickHandling: "JavaScript",
             onEventClick: function(args) {
-                showEventDetailDialog(normalizeEvent(args.e));
+                var ev = normalizeEvent(args.e);
+                if (ev.readonly && !ev.recurring) {
+                    showEventDetailDialog(ev);
+                } else {
+                    showInlineEditMenu(ev, args.x, args.y);
+                }
             },
 
             eventRightClickHandling: "JavaScript",
@@ -52,6 +57,52 @@
             },
 
             eventDeleteHandling: "Disabled",
+
+            onBeforeEventRender: function(args) {
+                var d = args.e.data;
+                var isDone = d.status === "done";
+                var isLocked = d.locked;
+                var isReadonly = d.readonly && !d.recurring;
+
+                // 只读事件（节假日/节气）不显示按钮
+                if (isReadonly) return;
+
+                // 根据状态着色
+                if (isDone) {
+                    args.e.backColor = "#4CAF50"; args.e.barColor = "#388E3C";
+                } else if (isLocked) {
+                    args.e.backColor = "#FF9800"; args.e.barColor = "#F57C00";
+                } else {
+                    args.e.backColor = "#7F77DD"; args.e.barColor = "#6C63FF";
+                }
+
+                // 事件条右侧的行内按钮
+                var btnW = 18, btnH = 18;
+                args.e.areas = [
+                    {
+                        right: 40, top: "calc(50% - " + (btnH/2) + "px)",
+                        width: btnW, height: btnH,
+                        html: isDone ? "✅" : "⬜",
+                        action: "JavaScript",
+                        onClick: function(areaArgs) {
+                            var ev = normalizeEvent(areaArgs.source);
+                            toggleEventStatus(ev);
+                        },
+                        style: "cursor:pointer;font-size:13px;line-height:" + btnH + "px;text-align:center;border-radius:3px;",
+                    },
+                    {
+                        right: 20, top: "calc(50% - " + (btnH/2) + "px)",
+                        width: btnW, height: btnH,
+                        html: isLocked ? "🔒" : "🔓",
+                        action: "JavaScript",
+                        onClick: function(areaArgs) {
+                            var ev = normalizeEvent(areaArgs.source);
+                            toggleEventLock(ev);
+                        },
+                        style: "cursor:pointer;font-size:12px;line-height:" + btnH + "px;text-align:center;border-radius:3px;",
+                    }
+                ];
+            },
 
             onBeforeCellRender: function(args) {
                 if (!args.cell || !args.cell.start) return;
@@ -117,8 +168,109 @@
                 status:      d.status       || 'pending',
                 locked:      d.locked       || false,
                 readonly:    d.readonly     || false,
-                recurring:   d.recurring    || false
+                recurring:   d.recurring    || false,
+                schedule_id: d.schedule_id  || ''
             };
+        }
+
+        // ---- 行内按钮：切换完成状态 ----
+        function toggleEventStatus(ev) {
+            var newStatus = ev.status === "done" ? "pending" : "done";
+            var apiUrl = ev.recurring ? "/api/schedules/" + ev.schedule_id + "/occurrence-status"
+                                     : "/api/events/status";
+            var body = ev.recurring
+                ? JSON.stringify({id: ev.id, date: ev.start.slice(0,10), status: newStatus})
+                : JSON.stringify({id: ev.id, day: ev.start.slice(0,10), status: newStatus});
+            fetch(apiUrl, { method: "POST", headers: {"Content-Type":"application/json"}, body: body })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.ok) loadEvents();
+                });
+        }
+
+        // ---- 行内按钮：切换锁定状态 ----
+        function toggleEventLock(ev) {
+            var newLocked = !ev.locked;
+            var apiUrl = ev.recurring ? "/api/schedules/" + ev.schedule_id + "/occurrence-lock"
+                                     : "/api/events/lock";
+            var body = ev.recurring
+                ? JSON.stringify({id: ev.id, date: ev.start.slice(0,10), locked: newLocked})
+                : JSON.stringify({id: ev.id, day: ev.start.slice(0,10), locked: newLocked});
+            fetch(apiUrl, { method: "POST", headers: {"Content-Type":"application/json"}, body: body })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.ok) loadEvents();
+                });
+        }
+
+        // ---- 点击事件后弹出的编辑菜单（编辑 + 删除）----
+        function showInlineEditMenu(ev, x, y) {
+            var old = document.getElementById("ctx-menu");
+            if (old) old.remove();
+
+            var menu = document.createElement("div");
+            menu.id = "ctx-menu";
+            menu.style.cssText = "position:fixed;top:" + y + "px;left:" + x + "px;background:#1a1a2e;color:#eee;border:1px solid #0f3460;border-radius:10px;padding:6px 0;z-index:1001;min-width:140px;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-size:13px;font-family:Microsoft YaHei,PingFang SC,sans-serif;";
+
+            function addItem(label, fn) {
+                var item = document.createElement("div");
+                item.innerText = label;
+                item.style.cssText = "padding:8px 18px;cursor:pointer;white-space:nowrap;";
+                item.addEventListener("mouseenter", function() { item.style.background = "#0f3460"; });
+                item.addEventListener("mouseleave", function() { item.style.background = "transparent"; });
+                item.addEventListener("click", function() { menu.remove(); fn(); });
+                menu.appendChild(item);
+            }
+
+            if (ev.recurring) {
+                addItem("\u270F\uFE0F 编辑重复计划", function() {
+                    // 编辑 schedule 模板
+                    fetch("/api/schedules/" + ev.schedule_id)
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (data.ok && data.schedule) {
+                                showScheduleEditDialog(data.schedule);
+                            } else {
+                                alert("无法加载重复事件信息");
+                            }
+                        });
+                });
+                addItem("\uD83D\uDDE1\uFE0F 删除重复计划", function() {
+                    if (!confirm("确定删除此重复计划？所有由它生成的事件将消失。")) return;
+                    fetch("/api/schedules/" + ev.schedule_id, { method: "DELETE" })
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (data.ok) loadEvents();
+                            else alert("删除失败");
+                        });
+                });
+            } else {
+                addItem("\u270F\uFE0F 编辑", function() {
+                    showEditDialog(ev);
+                });
+                addItem("\uD83D\uDDE1\uFE0F 删除", function() {
+                    if (!confirm("确定删除此事件？")) return;
+                    fetch("/api/events/delete", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({id: ev.id, day: ev.start.slice(0,10)})
+                    }).then(function(r) { return r.json(); }).then(function(data) {
+                        if (data.ok) loadEvents();
+                    });
+                });
+            }
+
+            document.body.appendChild(menu);
+
+            // Click outside closes menu
+            setTimeout(function() {
+                document.addEventListener("click", function closeMenu(e) {
+                    if (!menu.contains(e.target)) {
+                        menu.remove();
+                        document.removeEventListener("click", closeMenu);
+                    }
+                });
+            }, 0);
         }
 
         // ---- 分类图标 ----
@@ -880,6 +1032,23 @@
             html +=   '<div style="font-size:15px;font-weight:bold;color:#e94560;margin-bottom:12px;">🔄 重复事件管理</div>';
             html +=   '<div id="schedules-list" style="margin-bottom:14px;max-height:220px;overflow-y:auto;">加载中...</div>';
 
+            // Divider
+            html +=   '<hr style="border:none;border-top:1px solid #0f3460;margin:18px 0;">';
+
+            // All events management
+            html +=   '<div style="font-size:15px;font-weight:bold;color:#e94560;margin-bottom:12px;">📅 所有事件</div>';
+            html +=   '<div style="display:flex;gap:8px;margin-bottom:12px;">';
+            html +=     '<input id="event-mgr-search" type="text" placeholder="搜索标题..." style="flex:1;padding:7px 10px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:13px;box-sizing:border-box;">';
+            html +=     '<select id="event-mgr-filter" style="padding:7px 10px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:13px;">';
+            html +=       '<option value="">全部</option>';
+            html +=       '<option value="reminder">提醒</option>';
+            html +=       '<option value="sop">酷家乐SOP</option>';
+            html +=       '<option value="tool">工具</option>';
+            html +=       '<option value="external">外部事件</option>';
+            html +=     '</select>';
+            html +=   '</div>';
+            html +=   '<div id="event-mgr-list" style="max-height:250px;overflow-y:auto;margin-bottom:14px;">加载中...</div>';
+
             // Bottom buttons
             html +=   '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:22px;">';
             html +=     '<button id="settings-cancel" style="padding:8px 20px;background:transparent;color:#aaa;border:1px solid #444;border-radius:8px;cursor:pointer;font-size:14px;">取消</button>';
@@ -985,6 +1154,72 @@
                     document.getElementById('schedules-list').innerHTML = '<div style="font-size:13px;color:#f44336;">加载失败</div>';
                 });
 
+            // Load all events for management
+            function loadEventManagement() {
+                var search = document.getElementById('event-mgr-search').value.toLowerCase();
+                var filter = document.getElementById('event-mgr-filter').value;
+                // Load current week's events
+                var s = currentStart.format("YYYY-MM-DD");
+                var e = currentStart.add(6, "day").format("YYYY-MM-DD");
+                fetch("/api/events?start=" + s + "&end=" + e)
+                    .then(function(r) { return r.json(); })
+                    .then(function(events) {
+                        var list = document.getElementById('event-mgr-list');
+                        if (!events || events.length === 0) {
+                            list.innerHTML = '<div style="font-size:13px;color:#666;">本周暂无事件</div>';
+                            return;
+                        }
+                        var filtered = events;
+                        if (search) {
+                            filtered = filtered.filter(function(ev) {
+                                return (ev.text || '').toLowerCase().indexOf(search) >= 0;
+                            });
+                        }
+                        if (filter) {
+                            filtered = filtered.filter(function(ev) { return ev.kind === filter; });
+                        }
+                        if (filtered.length === 0) {
+                            list.innerHTML = '<div style="font-size:13px;color:#666;">无匹配事件</div>';
+                            return;
+                        }
+                        var items = '';
+                        filtered.forEach(function(ev) {
+                            var kindLabel = {"sop":"SOP","tool":"工具","reminder":"提醒","external":"外部","marker":"标记"}[ev.kind] || ev.kind;
+                            var isRecurring = ev.recurring;
+                            items += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;border-bottom:1px solid #0f3460;">';
+                            items +=   '<div style="flex:1;overflow:hidden;">';
+                            items +=     '<div>' + escapeHtml(ev.text) + ' <span style="font-size:11px;color:#aaa;">[' + kindLabel + (isRecurring ? '·重复' : '') + ']</span></div>';
+                            items +=     '<div style="font-size:11px;color:#666;">' + (ev.start || '').slice(0,16).replace('T',' ') + '</div>';
+                            items +=   '</div>';
+                            if (!isRecurring) {
+                                items += '<button data-id="' + ev.id + '" data-day="' + (ev.start||'').slice(0,10) + '" class="ev-mgr-del" style="padding:3px 10px;background:#f44336;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;">删除</button>';
+                            }
+                            items += '</div>';
+                        });
+                        list.innerHTML = items;
+                        list.querySelectorAll('.ev-mgr-del').forEach(function(btn) {
+                            btn.addEventListener('click', function() {
+                                var id = this.getAttribute('data-id');
+                                var day = this.getAttribute('data-day');
+                                if (!confirm('确定删除此事件？')) return;
+                                fetch('/api/events/delete', {
+                                    method: 'POST',
+                                    headers: {'Content-Type':'application/json'},
+                                    body: JSON.stringify({id:id, day:day})
+                                }).then(function(r) { return r.json(); }).then(function(data) {
+                                    if (data.ok) loadEventManagement();
+                                });
+                            });
+                        });
+                    })
+                    .catch(function() {
+                        document.getElementById('event-mgr-list').innerHTML = '<div style="font-size:13px;color:#f44336;">加载失败</div>';
+                    });
+            }
+            loadEventManagement();
+            document.getElementById('event-mgr-search').addEventListener('input', function() { loadEventManagement(); });
+            document.getElementById('event-mgr-filter').addEventListener('change', function() { loadEventManagement(); });
+
             // Add custom holiday
             document.getElementById('custom-h-add').addEventListener('click', function() {
                 var name = document.getElementById('custom-h-name').value.trim();
@@ -1021,6 +1256,66 @@
                 loadEvents();
             });
         };
+
+        // ---- 编辑重复事件模板 ----
+        function showScheduleEditDialog(schedule) {
+            var existing = document.getElementById("dlg-overlay-sched-edit");
+            if (existing) existing.remove();
+
+            var overlay = document.createElement("div");
+            overlay.id = "dlg-overlay-sched-edit";
+            overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;";
+
+            var html = '';
+            html += '<div style="background:#16213e;color:#eee;padding:28px;border-radius:14px;min-width:340px;max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,0.5);font-family:Microsoft YaHei,PingFang SC,sans-serif;">';
+            html +=   '<div style="font-size:18px;font-weight:bold;color:#e94560;margin-bottom:18px;">编辑重复事件</div>';
+            html +=   '<div style="margin-bottom:14px;">';
+            html +=     '<div style="font-size:13px;color:#aaa;margin-bottom:5px;">标题</div>';
+            html +=     '<input id="sched-edit-title" type="text" value="' + escapeHtml(schedule.title || '') + '" style="width:100%;padding:9px 12px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:14px;box-sizing:border-box;">';
+            html +=   '</div>';
+            html +=   '<div style="margin-bottom:18px;">';
+            html +=     '<div style="font-size:13px;color:#aaa;margin-bottom:5px;">分类</div>';
+            html +=     '<select id="sched-edit-kind" style="width:100%;padding:9px 12px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:14px;">';
+            html +=       '<option value="reminder"' + (schedule.kind === "reminder" ? " selected" : "") + '>提醒</option>';
+            html +=       '<option value="sop"' + (schedule.kind === "sop" ? " selected" : "") + '>酷家乐SOP</option>';
+            html +=       '<option value="tool"' + (schedule.kind === "tool" ? " selected" : "") + '>工具</option>';
+            html +=       '<option value="external"' + (schedule.kind === "external" ? " selected" : "") + '>外部事件</option>';
+            html +=     '</select>';
+            html +=   '</div>';
+            html +=   '<div style="margin-bottom:18px;">';
+            html +=     '<div style="font-size:13px;color:#aaa;margin-bottom:5px;">备注</div>';
+            html +=     '<textarea id="sched-edit-desc" style="width:100%;height:60px;padding:9px 12px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:14px;box-sizing:border-box;resize:vertical;" placeholder="可选">' + escapeHtml(schedule.description || '') + '</textarea>';
+            html +=   '</div>';
+            html +=   '<div style="display:flex;gap:10px;justify-content:flex-end;">';
+            html +=     '<button id="sched-edit-cancel" style="padding:8px 20px;background:transparent;color:#aaa;border:1px solid #444;border-radius:8px;cursor:pointer;font-size:14px;">取消</button>';
+            html +=     '<button id="sched-edit-ok" style="padding:8px 20px;background:#e94560;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold;">保存</button>';
+            html +=   '</div>';
+            html += '</div>';
+
+            overlay.innerHTML = html;
+            document.body.appendChild(overlay);
+
+            overlay.addEventListener("click", function(e) {
+                if (e.target === overlay) overlay.remove();
+            });
+            document.getElementById("sched-edit-cancel").addEventListener("click", function() {
+                overlay.remove();
+            });
+            document.getElementById("sched-edit-ok").addEventListener("click", function() {
+                var newTitle = document.getElementById("sched-edit-title").value.trim();
+                var newKind = document.getElementById("sched-edit-kind").value;
+                var newDesc = document.getElementById("sched-edit-desc").value.trim();
+                if (!newTitle) { alert("请输入标题"); return; }
+                fetch("/api/schedules/" + schedule.id, {
+                    method: "PUT",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({title: newTitle, kind: newKind, description: newDesc})
+                }).then(function(r) { return r.json(); }).then(function(data) {
+                    if (data.ok) { overlay.remove(); loadEvents(); }
+                    else { alert("保存失败：" + (data.error || "未知错误")); }
+                });
+            });
+        }
 
         dp.init();
         loadEvents();

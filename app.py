@@ -59,6 +59,7 @@ STATUSES     = ["pending", "done", "skipped"]
 
 # ====== Schedules (重复事件模板) ======
 SCHEDULES_FILE = DATA_DIR / "schedules.json"
+OCCURRENCE_OVERRIDES_FILE = DATA_DIR / "occurrence_overrides.json"
 
 def read_schedules() -> list[dict]:
     """Read all schedule templates."""
@@ -76,6 +77,30 @@ def read_schedules() -> list[dict]:
 def write_schedules(schedules: list[dict]) -> None:
     """Write schedule templates."""
     SCHEDULES_FILE.write_text(json.dumps(schedules, ensure_ascii=False, indent=2), encoding="utf-8")
+
+def read_occurrence_overrides() -> dict:
+    """Read all occurrence overrides. Returns {date_str: {event_id: {status, locked}}}."""
+    if not OCCURRENCE_OVERRIDES_FILE.exists():
+        return {}
+    try:
+        return json.loads(OCCURRENCE_OVERRIDES_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+def write_occurrence_override(date_str: str, event_id: str, status: str = None, locked: bool = None) -> None:
+    """Write an override for a recurring event occurrence."""
+    all_overrides = read_occurrence_overrides()
+    overrides = all_overrides.get(date_str, {})
+    override = overrides.get(event_id, {})
+    if status is not None:
+        override["status"] = status
+    if locked is not None:
+        override["locked"] = locked
+    overrides[event_id] = override
+    all_overrides[date_str] = overrides
+    OCCURRENCE_OVERRIDES_FILE.write_text(
+        json.dumps(all_overrides, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 def get_special_days(year: int) -> dict:
     """Get all special days for a given year.
@@ -324,11 +349,16 @@ def expand_recurring_schedules(start: date, end: date) -> list[dict]:
                 if y > end.year + 1:
                     break
 
+        overrides_by_date = read_occurrence_overrides()
+
         for d in occurrences:
             start_dt = datetime.combine(d, datetime.min.time().replace(hour=sh, minute=sm))
             end_dt = start_dt + timedelta(minutes=duration)
+            event_id = f"recurring-{sid}-{d.isoformat()}"
+            date_overrides = overrides_by_date.get(d.isoformat(), {})
+            occurrence_override = date_overrides.get(event_id, {})
             events.append({
-                "id": f"recurring-{sid}-{d.isoformat()}",
+                "id": event_id,
                 "start": start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
                 "end": end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
                 "text": title,
@@ -336,8 +366,8 @@ def expand_recurring_schedules(start: date, end: date) -> list[dict]:
                 "description": schedule.get("description", ""),
                 "reminder": schedule.get("reminder", "none"),
                 "exec_mode": schedule.get("exec_mode", "manual"),
-                "status": "pending",
-                "locked": False,
+                "status": occurrence_override.get("status", "pending"),
+                "locked": occurrence_override.get("locked", False),
                 "readonly": True,
                 "schedule_id": sid,
                 "recurring": True,
@@ -1461,6 +1491,45 @@ async def api_delete_schedule(schedule_id: str):
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+@app.get("/api/schedules/{schedule_id}")
+async def api_get_schedule(schedule_id: str):
+    """Get a single schedule template."""
+    try:
+        schedules = read_schedules()
+        for sch in schedules:
+            if sch["id"] == schedule_id:
+                return {"ok": True, "schedule": sch}
+        return {"ok": False, "error": "Schedule not found"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.post("/api/schedules/{schedule_id}/occurrence-status")
+async def api_set_occurrence_status(schedule_id: str, request: Request):
+    """Set completion status for a recurring event occurrence."""
+    try:
+        data = await request.json()
+        date_str = data.get("date", "")
+        status = data.get("status", "pending")
+        event_id = data.get("id", f"recurring-{schedule_id}-{date_str}")
+        write_occurrence_override(date_str, event_id, status=status)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.post("/api/schedules/{schedule_id}/occurrence-lock")
+async def api_set_occurrence_lock(schedule_id: str, request: Request):
+    """Set lock status for a recurring event occurrence."""
+    try:
+        data = await request.json()
+        date_str = data.get("date", "")
+        locked = data.get("locked", False)
+        event_id = data.get("id", f"recurring-{schedule_id}-{date_str}")
+        write_occurrence_override(date_str, event_id, locked=locked)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 
 @app.get("/api/special-days")
 async def api_list_special_days(request: Request):
