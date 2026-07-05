@@ -25,6 +25,158 @@
         }
         var typeKey = {solar: "solar", fest: "fest", holiday: "holiday", sem: "sem", custom: "sem"};
 
+        // ---- DetailPanel：事件详情面板（渲染器注册模式）----
+        window.DetailPanel = {
+            container: null,
+            renderers: {},
+
+            init: function() {
+                this.container = document.getElementById('detail-panel');
+            },
+
+            register: function(type, rendererFn) {
+                this.renderers[type] = rendererFn;
+            },
+
+            show: function(event) {
+                if (!this.container) this.init();
+                this.container.classList.add('show');
+                document.getElementById('detail-loading').style.display = 'block';
+                document.getElementById('detail-content').innerHTML = '';
+
+                var renderer = this.renderers[event.kind] || this.renderers['default'];
+                if (renderer) {
+                    renderer(event, this.container);
+                } else {
+                    this.showContent('<div style="padding:20px;color:#888;">未知事件类型：' + event.kind + '</div>');
+                }
+            },
+
+            showLoading: function() {
+                document.getElementById('detail-loading').style.display = 'block';
+                document.getElementById('detail-content').innerHTML = '';
+            },
+
+            showContent: function(html) {
+                document.getElementById('detail-loading').style.display = 'none';
+                document.getElementById('detail-content').innerHTML = html;
+            },
+
+            hide: function() {
+                if (!this.container) this.init();
+                this.container.classList.remove('show');
+            },
+
+            toggleStatus: function(eventId) {
+                // 调用 API 切换状态，然后刷新详情
+                fetch('/api/events?day=' + new Date().toISOString().slice(0,10))
+                    .then(r => r.json())
+                    .then(events => {
+                        var ev = events.find(e => e.id === eventId);
+                        if (ev) {
+                            // 调用 toggle API
+                            return fetch('/api/event/' + eventId + '/toggle', { method: 'POST' });
+                        }
+                    })
+                    .then(() => {
+                        // 刷新详情面板
+                        var currentEvent = window.DetailPanel._currentEvent;
+                        if (currentEvent) window.DetailPanel.show(currentEvent);
+                        // 刷新日历
+                        if (window.dp) window.dp.loadEvents();
+                    });
+            },
+
+            deleteEvent: function(eventId) {
+                if (!confirm('确定要删除这个事件吗？')) return;
+                fetch('/api/event/' + eventId, { method: 'DELETE' })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.ok) {
+                            window.DetailPanel.hide();
+                            if (window.dp) window.dp.loadEvents();
+                        } else {
+                            alert('删除失败：' + (data.error || '未知错误'));
+                        }
+                    });
+            }
+        };
+
+        // ---- 注册 SOP 渲染器（iframe 嵌入）----
+        window.DetailPanel.register('sop', function(event, container) {
+            var sopId = event.sop_id || 'kujiale';
+            window.DetailPanel._currentEvent = event;
+            window.DetailPanel.showContent(`
+                <div class="detail-header">
+                    <span class="detail-title">${event.text || 'SOP'}</span>
+                    <span class="detail-kind" style="background:#0f3460;color:#e94560;padding:4px 10px;border-radius:12px;font-size:12px;">SOP</span>
+                </div>
+                <iframe src="/sop/${sopId}" style="width:100%;height:calc(100% - 50px);border:none;background:#1a1a2e;"></iframe>
+            `);
+        });
+
+        // ---- 注册默认渲染器（普通事件 HTML 注入）----
+        window.DetailPanel.register('default', function(event, container) {
+            window.DetailPanel._currentEvent = event;
+            var statusStr = event.status === 'done' ? '✅ 已完成' : '⏳ 进行中';
+            var html = `
+                <div class="detail-header">
+                    <span class="detail-title">${event.text || '无标题'}</span>
+                    <span class="detail-kind" style="background:#0f3460;color:#e94560;padding:4px 10px;border-radius:12px;font-size:12px;">${event.kind || 'reminder'}</span>
+                </div>
+                <div class="detail-body" style="padding:20px;">
+                    <div style="font-size:14px;color:#aaa;margin-bottom:12px;">🕐 ${event.start ? event.start.slice(11,16) : ''} - ${event.end ? event.end.slice(11,16) : ''}</div>
+                    <div style="font-size:14px;color:#ccc;line-height:1.6;margin-bottom:20px;padding:12px;background:#1a1a2e;border-radius:8px;">${event.description || '无描述'}</div>
+                    <div style="display:flex;gap:10px;">
+                        <button onclick="window.DetailPanel._toggleStatus('${event.id}')" style="padding:8px 16px;border:1px solid #0f3460;border-radius:6px;background:#0f3460;color:#eee;cursor:pointer;font-size:13px;">${event.status === 'done' ? '标记未完成' : '标记完成'}</button>
+                        <button onclick="showEditDialog('${event.id}')" style="padding:8px 16px;border:1px solid #0f3460;border-radius:6px;background:#0f3460;color:#eee;cursor:pointer;font-size:13px;">编辑</button>
+                        <button onclick="window.DetailPanel._deleteEvent('${event.id}')" style="padding:8px 16px;border:1px solid #e94560;border-radius:6px;background:transparent;color:#e94560;cursor:pointer;font-size:13px;">删除</button>
+                    </div>
+                </div>
+            `;
+            window.DetailPanel.showContent(html);
+        });
+
+        // ---- 辅助方法（需要在 register 之后定义）----
+        window.DetailPanel._toggleStatus = function(eventId) {
+            var ev = window.DetailPanel._currentEvent;
+            if (!ev) return;
+            var newStatus = ev.status === 'done' ? 'pending' : 'done';
+            fetch('/api/events/status', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id: eventId, day: ev.start.slice(0,10), status: newStatus})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    ev.status = newStatus;
+                    window.DetailPanel.show(ev);
+                    if (window.dp) window.dp.loadEvents();
+                }
+            });
+        };
+
+        window.DetailPanel._deleteEvent = function(eventId) {
+            if (!confirm('确定要删除这个事件吗？')) return;
+            var ev = window.DetailPanel._currentEvent;
+            var day = ev ? ev.start.slice(0,10) : '';
+            fetch('/api/events/delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id: eventId, day: day})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    window.DetailPanel.hide();
+                    if (window.dp) window.dp.loadEvents();
+                } else {
+                    alert('删除失败：' + (data.error || '未知错误'));
+                }
+            });
+        };
+
         const dp = new DayPilot.Calendar("calendar", {
             viewType:      "Week",
             startDate:     currentStart.format("YYYY-MM-DD"),
@@ -44,12 +196,10 @@
             eventClickHandling: "JavaScript",
             onEventClick: function(args) {
                 var ev = normalizeEvent(args.e);
-                if (ev.kind === "sop") {
-                    // 动态打开 SOP 页面（根据 sop_id）
-                    var sopId = ev.sop_id || 'kujiale';  // 兼容旧数据
-                    window.open('/sop/' + sopId, '_blank');
+                // 显示详情面板（根据事件类型自动选择渲染器）
+                if (window.DetailPanel) {
+                    window.DetailPanel.show(ev);
                 }
-                // 非 SOP 事件：点击空白区域什么都不做
             },
 
             eventRightClickHandling: "Disabled",

@@ -1,5 +1,6 @@
 """
 Rubedo · 凝华 — 主页（日历页面）
+上下分栏布局：上方日历，下方详情面板
 """
 
 from nicegui import ui
@@ -11,7 +12,7 @@ import time
 
 @ui.page("/")
 def index():
-    """Main calendar page (DayPilot week view)."""
+    """Main calendar page (DayPilot week view) with detail panel."""
     # ---- CSS ----
     ui.add_head_html('<link href="/static/daypilot-theme.css" rel="stylesheet">')
 
@@ -26,16 +27,95 @@ def index():
             height: 100%;
             overflow: hidden;
         }
+        .main-layout {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
         #calendar {
             width: calc(100% - 32px);
             height: calc(100vh - 120px);
             margin: 16px;
+            flex-shrink: 0;
+        }
+        #detail-panel {
+            display: none;
+            height: 40vh;
+            background: #16213e;
+            border-top: 1px solid #0f3460;
+            overflow: auto;
+            flex-shrink: 0;
+        }
+        #detail-panel.show {
+            display: block;
+        }
+        #detail-loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+        #detail-content {
+            padding: 20px;
+        }
+        .detail-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 20px;
+            border-bottom: 1px solid #0f3460;
+        }
+        .detail-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #eee;
+        }
+        .detail-kind {
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            background: #0f3460;
+            color: #e94560;
+        }
+        .detail-body {
+            padding: 20px;
+        }
+        .detail-time {
+            font-size: 14px;
+            color: #aaa;
+            margin-bottom: 12px;
+        }
+        .detail-desc {
+            font-size: 14px;
+            color: #ccc;
+            line-height: 1.6;
+            margin-bottom: 20px;
+            padding: 12px;
+            background: #1a1a2e;
+            border-radius: 8px;
+        }
+        .detail-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .detail-actions button {
+            padding: 8px 16px;
+            border: 1px solid #0f3460;
+            border-radius: 6px;
+            background: #0f3460;
+            color: #eee;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .detail-actions button:hover {
+            background: #e94560;
+            color: #fff;
         }
         .nav-bar {
             display: flex; align-items: center; gap: 12px;
             padding: 8px 16px;
             background: #16213e;
             border-bottom: 1px solid #0f3460;
+            flex-shrink: 0;
         }
         .nav-bar button {
             background: #0f3460; color: #e94560;
@@ -79,22 +159,26 @@ def index():
         <button onclick="window.open('/audit', '_self')">审计</button>
     </div>""", sanitize=False)
 
-    # ---- Calendar container ----
-    ui.html('<div id="calendar"></div>')
-
-    # ---- Empty guide ----
-    ui.html("""
-    <div id="empty-guide" class="empty-guide" style="display:block !important;">
-        <div class="icon"></div>
-        <div class="title">空空如也，等待你的第一个计划</div>
-        <div class="hint">
-            在日历上拖选时间段来创建新事项<br>
-            点击事项查看详情<br>
-            右键事项可快速标记完成、编辑或删除<br>
-            试试创建你的第一条待办吧！
+    # ---- Main layout（上下分栏）----
+    ui.html("""<div class="main-layout">
+        <div id="calendar"></div>
+        <div id="detail-panel">
+            <div id="detail-loading" style="display:none;text-align:center;padding:40px;color:#888;">
+                ⏳ 加载中...
+            </div>
+            <div id="detail-content"></div>
         </div>
-    </div>
-    """, sanitize=False)
+        <div id="empty-guide" class="empty-guide">
+            <div class="icon">📅</div>
+            <div class="title">空空如也，等待你的第一个计划</div>
+            <div class="hint">
+                在日历上拖选时间段来创建新事项<br>
+                点击事项查看详情<br>
+                右键事项可快速标记完成、编辑或删除<br>
+                试试创建你的第一条待办吧！
+            </div>
+        </div>
+    </div>""", sanitize=False)
 
     # ---- DayPilot init ----
     ui.add_body_html(f'<script src="/static/init.js?v={int(time.time())}"></script>')
