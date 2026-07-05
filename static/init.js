@@ -43,12 +43,7 @@
 
             eventClickHandling: "JavaScript",
             onEventClick: function(args) {
-                var ev = normalizeEvent(args.e);
-                if (ev.readonly && !ev.recurring) {
-                    showEventDetailDialog(ev);
-                } else {
-                    showInlineEditMenu(ev, args.x, args.y);
-                }
+                showEventDetailDialog(normalizeEvent(args.e));
             },
 
             eventRightClickHandling: "JavaScript",
@@ -57,23 +52,6 @@
             },
 
             eventDeleteHandling: "Disabled",
-
-            onBeforeEventRender: function(args) {
-                var d = args.e.data || {};
-                var isDone = d.status === "done";
-                var isLocked = d.locked;
-                var isReadonly = d.readonly && !d.recurring;
-
-                if (isReadonly) return;
-
-                if (isDone) {
-                    args.e.backColor = "#4CAF50"; args.e.barColor = "#388E3C";
-                } else if (isLocked) {
-                    args.e.backColor = "#FF9800"; args.e.barColor = "#F57C00";
-                } else {
-                    args.e.backColor = "#7F77DD"; args.e.barColor = "#6C63FF";
-                }
-            },
 
             onBeforeCellRender: function(args) {
                 if (!args.cell || !args.cell.start) return;
