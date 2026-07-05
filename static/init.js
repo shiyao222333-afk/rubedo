@@ -44,17 +44,13 @@
             eventClickHandling: "JavaScript",
             onEventClick: function(args) {
                 var ev = normalizeEvent(args.e);
-                if (ev.readonly && !ev.recurring) {
-                    showEventDetailDialog(ev);
-                } else {
-                    showEditMenu(ev, args.x, args.y);
+                if (ev.kind === "sop") {
+                    window.open('/sop/kujiale', '_blank');
                 }
+                // 非 SOP 事件：点击空白区域什么都不做
             },
 
-            eventRightClickHandling: "JavaScript",
-            onEventRightClick: function(args) {
-                showContextMenu(normalizeEvent(args.e), args.x, args.y);
-            },
+            eventRightClickHandling: "Disabled",
 
             eventDeleteHandling: "Disabled",
 
@@ -65,7 +61,7 @@
 
                 args.data.areas = [
                     {
-                        right: 40, top: 5, width: 18, height: 18,
+                        right: 60, top: 5, width: 18, height: 18,
                         html: d.status === "done" ? "\u2705" : "\u2B1C",
                         action: "None",
                         onClick: function(areaArgs) {
@@ -74,11 +70,20 @@
                         visibility: "Visible",
                     },
                     {
-                        right: 20, top: 5, width: 18, height: 18,
+                        right: 40, top: 5, width: 18, height: 18,
                         html: d.locked ? "\uD83D\uDD12" : "\uD83D\uDD13",
                         action: "None",
                         onClick: function(areaArgs) {
                             toggleEventLock(normalizeEvent(areaArgs.source));
+                        },
+                        visibility: "Visible",
+                    },
+                    {
+                        right: 20, top: 5, width: 18, height: 18,
+                        html: "\u270F\uFE0F",
+                        action: "None",
+                        onClick: function(areaArgs) {
+                            showEditDialog(normalizeEvent(areaArgs.source));
                         },
                         visibility: "Visible",
                     }
@@ -188,6 +193,12 @@
         function showEditMenu(ev, x, y) {
             var old = document.getElementById("ctx-menu");
             if (old) old.remove();
+
+            // 如果没有坐标（从 ✏️ 按钮点击），居中显示
+            if (x === undefined || y === undefined) {
+                x = Math.max(0, (window.innerWidth - 160) / 2);
+                y = Math.max(0, (window.innerHeight - 200) / 2);
+            }
 
             var menu = document.createElement("div");
             menu.id = "ctx-menu";
@@ -558,6 +569,11 @@
                 var endStr   = endInput.value   ? endInput.value + ":00"   : (end.toString   ? end.toString()   : new Date(end).toISOString());
                 if (!title) { alert("请输入标题"); return; }
 
+                // 时间校验：结束时间必须晚于开始时间
+                if (startInput.value && endInput.value && endInput.value <= startInput.value) {
+                    alert("结束时间必须晚于开始时间，请重新选择。");
+                    return;
+                }
                 // 从开始/结束时间计算实际时长（分钟）
                 var durMinutes = 60;
                 if (startInput.value && endInput.value) {
@@ -709,6 +725,54 @@
             });
         }
 
+        // ---- Helper: generate time select options (30-min intervals) ----
+        // minTime: "HH:MM" — 只显示 >= minTime + 30min 的选项
+        // maxTime: "HH:MM" — 只显示 <= maxTime - 30min 的选项
+        function getTimeSelectHtml(selectedTime, minTime, maxTime) {
+            // 四舍五入到最近的 30 分钟
+            var selMin = 0;
+            if (selectedTime) {
+                var parts = selectedTime.split(":");
+                var h = parseInt(parts[0]) || 0;
+                var m = parseInt(parts[1]) || 0;
+                if (m < 15)      selMin = h * 60 + 0;
+                else if (m < 45) selMin = h * 60 + 30;
+                else               selMin = ((h + 1) % 24) * 60 + 0;
+            }
+            // 计算最小允许时间（分钟数）
+            var minMin = 0;
+            if (minTime) {
+                var mp = minTime.split(":");
+                minMin = parseInt(mp[0]) * 60 + parseInt(mp[1]) + 30; // 至少比开始时间晚30分钟
+            }
+            // 计算最大允许时间（分钟数）
+            var maxMin = 1439;
+            if (maxTime) {
+                var xp = maxTime.split(":");
+                maxMin = parseInt(xp[0]) * 60 + parseInt(xp[1]) - 30; // 至少比结束时间早30分钟
+                if (maxMin < 0) maxMin = -1; // 不允许任何选项
+            }
+            var options = '';
+            for (var totalMin = 0; totalMin < 1440; totalMin += 30) {
+                if (totalMin < minMin) continue;       // 早于最小允许时间，跳过
+                if (maxMin >= 0 && totalMin > maxMin) continue; // 晚于最大允许时间，跳过
+                var hh = Math.floor(totalMin / 60);
+                var mm = totalMin % 60;
+                var val = (hh < 10 ? "0" : "") + hh + ":" + (mm < 10 ? "0" : "") + mm;
+                var selected = (totalMin === selMin) ? " selected" : "";
+                // 如果选中的时间被过滤掉了，自动选第一个可用选项
+                if (selectedTime && totalMin === selMin && (totalMin < minMin || (maxMin >= 0 && totalMin > maxMin))) {
+                    selected = ""; // 原来选中的时间现在不合法，不选中
+                }
+                options += '<option value="' + val + '"' + selected + '>' + val + '</option>';
+            }
+            // 如果没有选中任何选项，选中第一个
+            if (options && !options.includes('selected')) {
+                options = options.replace('<option', '<option selected', 1);
+            }
+            return options;
+        }
+
         // ---- Edit dialog (replaces prompt()) ----
         function showEditDialog(ev) {
             var existing = document.getElementById("dlg-overlay-edit");
@@ -725,6 +789,21 @@
             html +=   '<div style="margin-bottom:14px;">';
             html +=     '<div style="font-size:13px;color:#aaa;margin-bottom:5px;">标题</div>';
             html +=     '<input id="dlg-edit-title" type="text" value="' + escapeHtml(ev.text) + '" style="width:100%;padding:9px 12px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:14px;box-sizing:border-box;">';
+            html +=   '</div>';
+
+            html +=   '<div style="margin-bottom:14px;">';
+            html +=     '<div style="font-size:13px;color:#aaa;margin-bottom:5px;">开始时间</div>';
+            html +=     '<div style="display:flex;gap:8px;">';
+            html +=       '<input id="dlg-edit-start-date" type="date" value="' + (ev.start ? ev.start.slice(0,10) : '') + '" style="flex:1;padding:9px 12px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:14px;box-sizing:border-box;">';
+            html +=       '<select id="dlg-edit-start-time" style="width:120px;padding:9px 12px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:14px;box-sizing:border-box;" onchange="syncEndTimeMin()">' + getTimeSelectHtml(ev.start ? ev.start.slice(11,16) : null, null, null) + '</select>';
+            html +=     '</div>';
+            html +=   '</div>';
+            html +=   '<div style="margin-bottom:14px;">';
+            html +=     '<div style="font-size:13px;color:#aaa;margin-bottom:5px;">结束时间</div>';
+            html +=     '<div style="display:flex;gap:8px;">';
+            html +=       '<input id="dlg-edit-end-date" type="date" value="' + (ev.end ? ev.end.slice(0,10) : '') + '" style="flex:1;padding:9px 12px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:14px;box-sizing:border-box;">';
+            html +=       '<select id="dlg-edit-end-time" style="width:120px;padding:9px 12px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:14px;box-sizing:border-box;" onchange="syncStartTimeMax()">' + getTimeSelectHtml(ev.end ? ev.end.slice(11,16) : null, ev.start ? ev.start.slice(11,16) : null, null) + '</select>';
+            html +=     '</div>';
             html +=   '</div>';
 
             html +=   '<div style="margin-bottom:14px;">';
@@ -752,9 +831,12 @@
             html +=     '</select>';
             html +=   '</div>';
 
-            html +=   '<div style="display:flex;gap:10px;justify-content:flex-end;">';
-            html +=     '<button id="dlg-edit-cancel" style="padding:8px 20px;background:transparent;color:#aaa;border:1px solid #444;border-radius:8px;cursor:pointer;font-size:14px;">取消</button>';
-            html +=     '<button id="dlg-edit-ok" style="padding:8px 20px;background:#2196F3;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold;">保存</button>';
+            html +=   '<div style="display:flex;gap:10px;justify-content:space-between;">';
+            html +=     '<button id="dlg-edit-delete" style="padding:8px 20px;background:transparent;color:#F44336;border:1px solid #F44336;border-radius:8px;cursor:pointer;font-size:14px;">🗑️ 删除</button>';
+            html +=     '<div style="display:flex;gap:10px;">';
+            html +=       '<button id="dlg-edit-cancel" style="padding:8px 20px;background:transparent;color:#aaa;border:1px solid #444;border-radius:8px;cursor:pointer;font-size:14px;">取消</button>';
+            html +=       '<button id="dlg-edit-ok" style="padding:8px 20px;background:#2196F3;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold;">保存</button>';
+            html +=     '</div>';
             html +=   '</div>';
             html += '</div>';
 
@@ -765,30 +847,196 @@
                 if (input) input.focus();
             }, 80);
 
+            // 时间联动：选开始时间后，结束时间自动过滤掉早于开始时间的选项，并自动修正无效选择
+            window.syncEndTimeMin = function() {
+                var startSel = document.getElementById("dlg-edit-start-time");
+                var endSel   = document.getElementById("dlg-edit-end-time");
+                if (!startSel || !endSel) return;
+                var startTime = startSel.value;
+                // 重刷结束时间选项（只显示 >= 开始时间+30分钟 的选项）
+                var newOptions = getTimeSelectHtml(null, startTime, null);
+                endSel.innerHTML = newOptions;
+                // 如果结束时间现在早于开始时间+30分钟，自动选第一个合法选项
+                if (endSel.value && startTime) {
+                    var endMin   = parseInt(endSel.value.slice(0,2)) * 60 + parseInt(endSel.value.slice(3,5));
+                    var startMin = parseInt(startTime.slice(0,2)) * 60 + parseInt(startTime.slice(3,5)) + 30;
+                    if (endMin < startMin) {
+                        // 选第一个合法选项
+                        var firstOpt = endSel.querySelector('option');
+                        if (firstOpt) endSel.value = firstOpt.value;
+                    }
+                }
+            };
+            // 时间联动：选结束时间后，开始时间自动过滤掉晚于结束时间的选项，并自动修正无效选择
+            window.syncStartTimeMax = function() {
+                var startSel = document.getElementById("dlg-edit-start-time");
+                var endSel   = document.getElementById("dlg-edit-end-time");
+                if (!startSel || !endSel) return;
+                var endTime = endSel.value;
+                // 重刷开始时间选项（只显示 <= 结束时间-30分钟 的选项）
+                var newOptions = getTimeSelectHtml(null, null, endTime);
+                startSel.innerHTML = newOptions;
+                // 如果开始时间现在晚于结束时间-30分钟，自动选最后一个合法选项
+                if (startSel.value && endTime) {
+                    var startMin = parseInt(startSel.value.slice(0,2)) * 60 + parseInt(startSel.value.slice(3,5));
+                    var endMin   = parseInt(endTime.slice(0,2)) * 60 + parseInt(endTime.slice(3,5)) - 30;
+                    if (startMin > endMin) {
+                        // 选最后一个合法选项
+                        var opts = startSel.querySelectorAll('option');
+                        if (opts.length > 0) startSel.value = opts[opts.length - 1].value;
+                    }
+                }
+            };
+
             overlay.addEventListener("click", function(e) {
                 if (e.target === overlay) overlay.remove();
             });
             document.getElementById("dlg-edit-cancel").addEventListener("click", function() {
                 overlay.remove();
             });
+            document.getElementById("dlg-edit-delete").addEventListener("click", function() {
+                // 区分普通事件和重复事件
+                var isRecurring = ev.recurring || false;
+                var scheduleId  = ev.schedule_id || "";
+                var eventTitle  = stripIcon(ev.text || "");
+
+                if (isRecurring && scheduleId) {
+                    // 重复事件：删除整个调度模板
+                    var msg = "确认删除重复事件「" + eventTitle + "」？\n\n删除后，以后所有天都不会再生成这个事件。\n此操作不可撤销！";
+                    if (!confirm(msg)) return;
+                    fetch("/api/schedules/" + encodeURIComponent(scheduleId), {
+                        method: "DELETE",
+                        headers: {"Content-Type": "application/json"}
+                    }).then(function(r) { return r.json(); }).then(function(data) {
+                        if (data.ok) { overlay.remove(); loadEvents(); }
+                        else alert("删除失败：" + (data.error || "未知错误"));
+                    }).catch(function(err) {
+                        alert("删除出错：" + err);
+                    });
+                } else {
+                    // 普通事件：直接删除
+                    if (!confirm("确认删除事件「" + eventTitle + "」？")) return;
+                    fetch("/api/events/delete", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({id: ev.id, day: ev.start.slice(0,10)})
+                    }).then(function(r) { return r.json(); }).then(function(data) {
+                        if (data.ok) { overlay.remove(); loadEvents(); }
+                        else alert("删除失败：" + (data.error || "未知错误"));
+                    }).catch(function(err) {
+                        alert("删除出错：" + err);
+                    });
+                }
+            });
             document.getElementById("dlg-edit-ok").addEventListener("click", function() {
                 var titleInput = document.getElementById("dlg-edit-title");
                 var kindSelect = document.getElementById("dlg-edit-kind");
                 var descInput  = document.getElementById("dlg-edit-desc");
                 var reminderSelect = document.getElementById("dlg-edit-reminder");
+                var startDateInput = document.getElementById("dlg-edit-start-date");
+                var startTimeSelect = document.getElementById("dlg-edit-start-time");
+                var endDateInput   = document.getElementById("dlg-edit-end-date");
+                var endTimeSelect   = document.getElementById("dlg-edit-end-time");
                 var newTitle = titleInput.value.trim();
                 var newKind  = kindSelect.value;
                 var newDesc  = descInput.value.trim();
                 var newReminder = reminderSelect.value;
                 if (!newTitle) { alert("请输入标题"); return; }
-                fetch("/api/events/update", {
-                    method: "PUT",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({id: ev.id, day: ev.start.slice(0,10), text: withIcon(stripIcon(newTitle), newKind), kind: newKind, description: newDesc, reminder: newReminder})
-                }).then(function(r) { return r.json(); }).then(function(data) {
-                    if (data.ok) { overlay.remove(); loadEvents(); }
-                    else alert("修改失败：" + (data.error || "未知错误"));
-                });
+
+                var newStart = null;
+                var newEnd   = null;
+                if (startDateInput.value && startTimeSelect.value) {
+                    newStart = startDateInput.value + "T" + startTimeSelect.value + ":00";
+                }
+                if (endDateInput.value && endTimeSelect.value) {
+                    newEnd = endDateInput.value + "T" + endTimeSelect.value + ":00";
+                }
+
+                // 时间校验：结束时间不能早于开始时间
+                if (newStart && newEnd && newEnd <= newStart) {
+                    alert("结束时间不能早于开始时间，请重新选择。");
+                    return;
+                }
+
+                // 判断是否为重复事件
+                var isRecurring = ev.recurring || false;
+                var scheduleId  = ev.schedule_id || "";
+
+                if (isRecurring && scheduleId) {
+                    // 重复事件：调 update 接口，后端写入 occurrence_overrides
+                    var body = {
+                        id: ev.id,
+                        day: ev.start.slice(0,10),
+                        text: withIcon(stripIcon(newTitle), newKind),
+                        kind: newKind,
+                        description: newDesc,
+                        reminder: newReminder,
+                        recurring: true,
+                        schedule_id: scheduleId,
+                    };
+                    if (newStart) body.start = newStart;
+                    if (newEnd)   body.end   = newEnd;
+                    fetch("/api/events/update", {
+                        method: "PUT",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify(body)
+                    }).then(function(r) { return r.json(); }).then(function(data) {
+                        if (data.ok) { overlay.remove(); loadEvents(); }
+                        else alert("修改失败：" + (data.error || "未知错误"));
+                    }).catch(function(err) {
+                        alert("修改出错：" + err);
+                    });
+                } else {
+                    // 普通事件：判断日期是否改变
+                    var oldDay = ev.start.slice(0,10);
+                    var newDay = newStart ? newStart.slice(0,10) : oldDay;
+                    var dayChanged = (newDay !== oldDay);
+
+                    if (dayChanged) {
+                        // 日期改变 → 用 /api/events/move
+                        var moveBody = {
+                            old_day: oldDay,
+                            old_id:  ev.id,
+                            event:   {start: newStart, end: newEnd}
+                        };
+                        fetch("/api/events/move", {
+                            method: "POST",
+                            headers: {"Content-Type": "application/json"},
+                            body: JSON.stringify(moveBody)
+                        }).then(function(r) { return r.json(); }).then(function(data) {
+                            if (data.ok) {
+                                var updBody = {id: ev.id, day: newDay, text: withIcon(stripIcon(newTitle), newKind), kind: newKind, description: newDesc, reminder: newReminder};
+                                fetch("/api/events/update", {
+                                    method: "PUT",
+                                    headers: {"Content-Type": "application/json"},
+                                    body: JSON.stringify(updBody)
+                                }).then(function(r) { return r.json(); }).then(function(data2) {
+                                    if (data2.ok) { overlay.remove(); loadEvents(); }
+                                    else alert("时间已更新，但其他字段修改失败：" + (data2.error || "未知错误"));
+                                });
+                            } else {
+                                alert("移动事件失败：" + (data.error || "未知错误"));
+                            }
+                        }).catch(function(err) {
+                            alert("移动事件出错：" + err);
+                        });
+                    } else {
+                        // 日期未变 → 直接用 update
+                        var body = {id: ev.id, day: oldDay, text: withIcon(stripIcon(newTitle), newKind), kind: newKind, description: newDesc, reminder: newReminder};
+                        if (newStart) body.start = newStart;
+                        if (newEnd)   body.end   = newEnd;
+                        fetch("/api/events/update", {
+                            method: "PUT",
+                            headers: {"Content-Type": "application/json"},
+                            body: JSON.stringify(body)
+                        }).then(function(r) { return r.json(); }).then(function(data) {
+                            if (data.ok) { overlay.remove(); loadEvents(); }
+                            else alert("修改失败：" + (data.error || "未知错误"));
+                        }).catch(function(err) {
+                            alert("修改出错：" + err);
+                        });
+                    }
+                }
             });
         }
 
@@ -892,69 +1140,6 @@
         }
 
         // ---- Right-click context menu ----
-        function showContextMenu(ev, x, y) {
-            var old = document.getElementById("ctx-menu");
-            if (old) old.remove();
-
-            var menu = document.createElement("div");
-            menu.id = "ctx-menu";
-            menu.style.cssText = "position:fixed;top:" + y + "px;left:" + x + "px;background:#1a1a2e;color:#eee;border:1px solid #0f3460;border-radius:10px;padding:6px 0;z-index:1001;min-width:150px;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-size:13px;font-family:Microsoft YaHei,PingFang SC,sans-serif;";
-
-            function addItem(label, fn) {
-                var item = document.createElement("div");
-                item.innerText = label;
-                item.style.cssText = "padding:9px 20px;cursor:pointer;color:#eee;transition:background 0.15s;";
-                item.addEventListener("mouseenter", function() { item.style.background = "#0f3460"; });
-                item.addEventListener("mouseleave", function() { item.style.background = "transparent"; });
-                item.addEventListener("click", function() { menu.remove(); fn(); });
-                menu.appendChild(item);
-            }
-
-            if (ev.status !== "done") {
-                addItem("\u2705 标记完成", function() {
-                    fetch("/api/events/status", {
-                        method: "POST",
-                        headers: {"Content-Type": "application/json"},
-                        body: JSON.stringify({id: ev.id, day: ev.start.slice(0,10), status: "done"})
-                    }).then(function(r) { return r.json(); }).then(function(data) {
-                        if (data.ok) loadEvents();
-                    });
-                });
-            } else {
-                addItem("\u23F3 标记未完成", function() {
-                    fetch("/api/events/status", {
-                        method: "POST",
-                        headers: {"Content-Type": "application/json"},
-                        body: JSON.stringify({id: ev.id, day: ev.start.slice(0,10), status: "pending"})
-                    }).then(function(r) { return r.json(); }).then(function(data) {
-                        if (data.ok) loadEvents();
-                    });
-                });
-            }
-            addItem("\u270F\uFE0F 编辑",   function() { showEventDetailDialog(ev); });
-            addItem("\uD83D\uDDE1\uFE0F 删除",   function() {
-                if (!confirm("确定删除此事件？")) return;
-                fetch("/api/events/delete", {
-                    method: "POST",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({id: ev.id, day: ev.start.slice(0,10)})
-                }).then(function(r) { return r.json(); }).then(function(data) {
-                    if (data.ok) loadEvents();
-                });
-            });
-
-            document.body.appendChild(menu);
-            setTimeout(function() {
-                function closeFn(e) {
-                    if (!menu.contains(e.target)) {
-                        menu.remove();
-                        document.removeEventListener("click", closeFn);
-                    }
-                }
-                document.addEventListener("click", closeFn);
-            }, 0);
-        }
-
         // ---- Helper: escape HTML ----
         function escapeHtml(text) {
             var div = document.createElement("div");

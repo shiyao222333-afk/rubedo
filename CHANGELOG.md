@@ -26,6 +26,8 @@
 - **`showContextMenu` 函数**：右键菜单相关代码已清理
 
 ### Fixed
+- **时间选择联动修复**（编辑对话框）：`syncEndTimeMin()` 和 `syncStartTimeMax()` 现在在重刷选项后自动修正无效选择（结束时间早于开始时间时自动选第一个合法选项，开始时间晚于结束时间时自动选最后一个合法选项）
+- **新建对话框时间校验**（新建对话框）：新增时间校验——保存时检查结束时间必须晚于开始时间，否则 alert 并拒绝保存（之前无校验，`diff<=0` 时默认 60 分钟，导致可创建非法事件）
 - **重复事件更新无效**（关键修复）：`api_update_event` 现在正确处理重复事件——检测到 `recurring=True` 时改 `schedules.json` 模板（影响所有 occurrence），而不是改 daily JSON（重复事件不在 daily 文件里）
 - **API 返回 500 错误**（关键修复）：所有 API 处理函数改为返回 `JSONResponse(...)`（Starlette 要求），之前直接返回 dict 导致 `TypeError: 'dict' object is not callable`
 - **部分路由 500 错误**（修复）：`api_list_schedules` 等无参数路由处理函数补充了 `request: Request` 参数（Starlette 要求所有路由处理函数必须接受 request 参数）
