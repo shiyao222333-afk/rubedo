@@ -59,7 +59,8 @@
             eventDeleteHandling: "Disabled",
 
             onBeforeEventRender: function(args) {
-                var d = args.e.data;
+                try {
+                var d = args.e.data || {};
                 var isDone = d.status === "done";
                 var isLocked = d.locked;
                 var isReadonly = d.readonly && !d.recurring;
@@ -80,7 +81,7 @@
                 var btnW = 18, btnH = 18;
                 args.e.areas = [
                     {
-                        right: 40, top: "calc(50% - " + (btnH/2) + "px)",
+                        right: 40, top: 5,
                         width: btnW, height: btnH,
                         html: isDone ? "✅" : "⬜",
                         action: "JavaScript",
@@ -91,7 +92,7 @@
                         style: "cursor:pointer;font-size:13px;line-height:" + btnH + "px;text-align:center;border-radius:3px;",
                     },
                     {
-                        right: 20, top: "calc(50% - " + (btnH/2) + "px)",
+                        right: 20, top: 5,
                         width: btnW, height: btnH,
                         html: isLocked ? "🔒" : "🔓",
                         action: "JavaScript",
@@ -102,6 +103,7 @@
                         style: "cursor:pointer;font-size:12px;line-height:" + btnH + "px;text-align:center;border-radius:3px;",
                     }
                 ];
+                } catch(e) { /* 渲染错误不中断日历 */ }
             },
 
             onBeforeCellRender: function(args) {
