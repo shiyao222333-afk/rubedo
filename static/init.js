@@ -66,22 +66,12 @@
 
                 if (isReadonly) return;
 
-                // 着色
                 if (isDone) {
                     args.e.backColor = "#4CAF50"; args.e.barColor = "#388E3C";
                 } else if (isLocked) {
                     args.e.backColor = "#FF9800"; args.e.barColor = "#F57C00";
                 } else {
                     args.e.backColor = "#7F77DD"; args.e.barColor = "#6C63FF";
-                }
-
-                // 在文字后面加状态标记
-                var tag = '';
-                if (isDone) tag = ' ✅';
-                else if (isLocked) tag = ' 🔒';
-                var raw = args.e.text ? String(args.e.text) : '';
-                if (tag && raw.indexOf(tag) === -1) {
-                    args.e.text = raw + tag;
                 }
             },
 
