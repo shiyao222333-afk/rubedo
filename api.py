@@ -103,6 +103,47 @@ async def api_update_event(request: Request):
     """
     try:
         data = await request.json()
+        
+        # ---- 输入验证 ----
+        if not isinstance(data, dict):
+            return JSONResponse({"ok": False, "error": "Invalid request body"})
+        
+        # 普通事件：需要 day + id
+        if not data.get("recurring"):
+            if "day" not in data:
+                return JSONResponse({"ok": False, "error": "Missing required field: day"})
+            if "id" not in data:
+                return JSONResponse({"ok": False, "error": "Missing required field: id"})
+            # 验证 day 格式
+            try:
+                date.fromisoformat(data["day"])
+            except (ValueError, TypeError):
+                return JSONResponse({"ok": False, "error": "Invalid day format, expected YYYY-MM-DD"})
+        
+        # 重复事件：需要 recurring=True + schedule_id
+        else:
+            if "schedule_id" not in data:
+                return JSONResponse({"ok": False, "error": "Missing required field: schedule_id for recurring event"})
+        
+        # 验证 kind 枚举值
+        if "kind" in data and data["kind"] not in ("reminder", "work", "personal", "holiday", "sop"):
+            return JSONResponse({"ok": False, "error": f"Invalid kind: {data['kind']}"})
+        
+        # 验证 exec_mode 枚举值
+        if "exec_mode" in data and data["exec_mode"] not in ("manual", "auto"):
+            return JSONResponse({"ok": False, "error": f"Invalid exec_mode: {data['exec_mode']}"})
+        
+        # 验证时间（如果提供）
+        if "start" in data and "end" in data:
+            try:
+                from datetime import datetime
+                start_dt = datetime.fromisoformat(data["start"])
+                end_dt   = datetime.fromisoformat(data["end"])
+                if end_dt <= start_dt:
+                    return JSONResponse({"ok": False, "error": "end must be after start"})
+            except (ValueError, TypeError):
+                return JSONResponse({"ok": False, "error": "Invalid time format, expected ISO 8601"})
+        
         print(f"[DEBUG] api_update_event: recurring={data.get('recurring')}, schedule_id={data.get('schedule_id')}")
         
         # ---- 重复事件：改模板（schedules.json）----
@@ -390,6 +431,44 @@ async def api_write_timelog(request: Request):
     """Write a timelog entry."""
     try:
         data = await request.json()
+        
+        # ---- 输入验证 ----
+        if not isinstance(data, dict):
+            return JSONResponse({"ok": False, "error": "Invalid request body"})
+        
+        # 验证必需字段
+        if "sop_id" not in data:
+            return JSONResponse({"ok": False, "error": "Missing required field: sop_id"})
+        if not data["sop_id"] or not isinstance(data["sop_id"], str):
+            return JSONResponse({"ok": False, "error": "sop_id must be a non-empty string"})
+        
+        # 验证时间格式（如果提供）
+        for time_field in ["start_time", "end_time"]:
+            if time_field in data and data[time_field]:
+                try:
+                    from datetime import datetime
+                    datetime.fromisoformat(data[time_field])
+                except (ValueError, TypeError):
+                    return JSONResponse({"ok": False, "error": f"Invalid {time_field} format, expected ISO 8601"})
+        
+        # 验证 duration_min 非负
+        if "duration_min" in data:
+            try:
+                duration = int(data["duration_min"])
+                if duration < 0:
+                    return JSONResponse({"ok": False, "error": "duration_min must be non-negative"})
+            except (ValueError, TypeError):
+                return JSONResponse({"ok": False, "error": "duration_min must be an integer"})
+        
+        # 验证 income 非负
+        if "income" in data:
+            try:
+                income = float(data["income"])
+                if income < 0:
+                    return JSONResponse({"ok": False, "error": "income must be non-negative"})
+            except (ValueError, TypeError):
+                return JSONResponse({"ok": False, "error": "income must be a number"})
+        
         entry = {
             "id":         data.get("id", str(uuid4())),
             "sop_id":     data.get("sop_id", "unknown"),
@@ -455,12 +534,22 @@ async def api_add_custom_holiday(request: Request):
     """Add a custom holiday."""
     try:
         data = await request.json()
+        
+        # ---- 输入验证 ----
+        if not isinstance(data, dict):
+            return JSONResponse({"ok": False, "error": "Invalid request body"})
+        
         name = data.get("name", "").strip()
         date_str = data.get("date", "").strip()
         if not name or not date_str:
             return JSONResponse({"ok": False, "error": "名称和日期不能为空"})
+        if len(name) > 50:
+            return JSONResponse({"ok": False, "error": "名称不能超过50个字符"})
         from datetime import datetime as dt
-        dt.strptime(date_str, "%Y-%m-%d")
+        try:
+            dt.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            return JSONResponse({"ok": False, "error": "日期格式错误，应为 YYYY-MM-DD"})
         holidays = []
         if CUSTOM_HOLIDAYS_FILE.exists():
             with open(CUSTOM_HOLIDAYS_FILE, "r", encoding="utf-8") as f:

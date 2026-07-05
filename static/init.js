@@ -558,6 +558,32 @@
             document.getElementById("dlg-create-start").value = startVal;
             document.getElementById("dlg-create-end").value   = endVal;
 
+            // 开始时间变化时，自动调整结束时间（如果结束时间更早或为空）
+            document.getElementById("dlg-create-start").addEventListener("change", function() {
+                var startVal = this.value;
+                var endInput = document.getElementById("dlg-create-end");
+                if (!startVal) return;
+                var startDate = new Date(startVal);
+                if (isNaN(startDate)) return;
+                startDate.setHours(startDate.getHours() + 1);
+                var newEndVal = startDate.toISOString().slice(0, 16);
+                if (!endInput.value || endInput.value <= startVal) {
+                    endInput.value = newEndVal;
+                }
+            });
+
+            // 结束时间不能早于开始时间（用户手动改结束时也联动）
+            document.getElementById("dlg-create-end").addEventListener("change", function() {
+                var startVal = document.getElementById("dlg-create-start").value;
+                if (!startVal || !this.value) return;
+                if (this.value <= startVal) {
+                    alert("结束时间必须晚于开始时间，已自动调整。");
+                    var startDate = new Date(startVal);
+                    startDate.setHours(startDate.getHours() + 1);
+                    this.value = startDate.toISOString().slice(0, 16);
+                }
+            });
+
             document.getElementById("dlg-create-ok").addEventListener("click", function() {
                 var titleInput = document.getElementById("dlg-create-title");
                 var kindSelect = document.getElementById("dlg-create-kind");
@@ -800,14 +826,14 @@
             html +=   '<div style="margin-bottom:14px;">';
             html +=     '<div style="font-size:13px;color:#aaa;margin-bottom:5px;">开始时间</div>';
             html +=     '<div style="display:flex;gap:8px;">';
-            html +=       '<input id="dlg-edit-start-date" type="date" value="' + (ev.start ? ev.start.slice(0,10) : '') + '" style="flex:1;padding:9px 12px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:14px;box-sizing:border-box;">';
+            html +=       '<input id="dlg-edit-start-date" type="date" value="' + (ev.start ? ev.start.slice(0,10) : '') + '" style="flex:1;padding:9px 12px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:14px;box-sizing:border-box;" onchange="syncEndDateMin()">';
             html +=       '<select id="dlg-edit-start-time" style="width:120px;padding:9px 12px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:14px;box-sizing:border-box;" onchange="syncEndTimeMin()">' + getTimeSelectHtml(ev.start ? ev.start.slice(11,16) : null, null, null) + '</select>';
             html +=     '</div>';
             html +=   '</div>';
             html +=   '<div style="margin-bottom:14px;">';
             html +=     '<div style="font-size:13px;color:#aaa;margin-bottom:5px;">结束时间</div>';
             html +=     '<div style="display:flex;gap:8px;">';
-            html +=       '<input id="dlg-edit-end-date" type="date" value="' + (ev.end ? ev.end.slice(0,10) : '') + '" style="flex:1;padding:9px 12px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:14px;box-sizing:border-box;">';
+            html +=       '<input id="dlg-edit-end-date" type="date" value="' + (ev.end ? ev.end.slice(0,10) : '') + '" style="flex:1;padding:9px 12px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:14px;box-sizing:border-box;" onchange="syncStartDateMax()">';
             html +=       '<select id="dlg-edit-end-time" style="width:120px;padding:9px 12px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:8px;font-size:14px;box-sizing:border-box;" onchange="syncStartTimeMax()">' + getTimeSelectHtml(ev.end ? ev.end.slice(11,16) : null, ev.start ? ev.start.slice(11,16) : null, null) + '</select>';
             html +=     '</div>';
             html +=   '</div>';
@@ -892,6 +918,36 @@
                         if (opts.length > 0) startSel.value = opts[opts.length - 1].value;
                     }
                 }
+            };
+
+            // 日期联动：选开始日期后，结束日期不能早于开始日期
+            window.syncEndDateMin = function() {
+                var startDateInput = document.getElementById("dlg-edit-start-date");
+                var endDateInput   = document.getElementById("dlg-edit-end-date");
+                if (!startDateInput || !endDateInput) return;
+                var startDate = startDateInput.value;
+                if (!startDate) return;
+                // 如果结束日期早于开始日期，自动调整为开始日期
+                if (endDateInput.value && endDateInput.value < startDate) {
+                    endDateInput.value = startDate;
+                }
+                // 设置结束日期的 min 属性
+                endDateInput.min = startDate;
+            };
+
+            // 日期联动：选结束日期后，开始日期不能晚于结束日期
+            window.syncStartDateMax = function() {
+                var startDateInput = document.getElementById("dlg-edit-start-date");
+                var endDateInput   = document.getElementById("dlg-edit-end-date");
+                if (!startDateInput || !endDateInput) return;
+                var endDate = endDateInput.value;
+                if (!endDate) return;
+                // 如果开始日期晚于结束日期，自动调整为结束日期
+                if (startDateInput.value && startDateInput.value > endDate) {
+                    startDateInput.value = endDate;
+                }
+                // 设置开始日期的 max 属性
+                startDateInput.max = endDate;
             };
 
             overlay.addEventListener("click", function(e) {
