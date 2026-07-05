@@ -43,7 +43,12 @@
 
             eventClickHandling: "JavaScript",
             onEventClick: function(args) {
-                showEventDetailDialog(normalizeEvent(args.e));
+                var ev = normalizeEvent(args.e);
+                if (ev.readonly && !ev.recurring) {
+                    showEventDetailDialog(ev);
+                } else {
+                    showEditMenu(ev, args.x, args.y);
+                }
             },
 
             eventRightClickHandling: "JavaScript",
@@ -180,7 +185,7 @@
         }
 
         // ---- 点击事件后弹出的编辑菜单（编辑 + 删除）----
-        function showInlineEditMenu(ev, x, y) {
+        function showEditMenu(ev, x, y) {
             var old = document.getElementById("ctx-menu");
             if (old) old.remove();
 
