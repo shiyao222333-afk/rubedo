@@ -598,10 +598,11 @@
                 var endStr   = endInput.value   ? endInput.value + ":00"   : (end.toString   ? end.toString()   : new Date(end).toISOString());
                 if (!title) { alert("请输入标题"); return; }
 
-                // 时间校验：结束时间必须晚于开始时间
+                // 时间校验：结束时间必须晚于开始时间，自动调整
                 if (startInput.value && endInput.value && endInput.value <= startInput.value) {
-                    alert("结束时间必须晚于开始时间，请重新选择。");
-                    return;
+                    var startDate = new Date(startInput.value);
+                    startDate.setMinutes(startDate.getMinutes() + 30);
+                    endInput.value = startDate.toISOString().slice(0, 16);
                 }
                 // 从开始/结束时间计算实际时长（分钟）
                 var durMinutes = 60;
@@ -1014,10 +1015,16 @@
                     newEnd = endDateInput.value + "T" + endTimeSelect.value + ":00";
                 }
 
-                // 时间校验：结束时间不能早于开始时间
+                // 时间校验：结束时间不能早于开始时间，自动调整
                 if (newStart && newEnd && newEnd <= newStart) {
-                    alert("结束时间不能早于开始时间，请重新选择。");
-                    return;
+                    var startDate = new Date(newStart);
+                    startDate.setMinutes(startDate.getMinutes() + 30);
+                    newEnd = startDate.toISOString().slice(0, 19);
+                    // 更新界面显示
+                    var endDateInput = document.getElementById("dlg-edit-end-date");
+                    var endTimeSelect = document.getElementById("dlg-edit-end-time");
+                    if (endDateInput) endDateInput.value = newEnd.slice(0, 10);
+                    if (endTimeSelect) endTimeSelect.value = newEnd.slice(11, 16);
                 }
 
                 // 判断是否为重复事件
