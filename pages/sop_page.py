@@ -103,26 +103,49 @@ def sop_page(sop_id: str):
 
     def render_steps():
         steps_container.clear()
-        for step in sop.get("steps", []):
-            with steps_container:
-                with ui.card().classes("w-full p-4 bg-gray-800"):
-                    ui.label(step["name"]).classes("text-lg font-bold text-white")
-                    ui.label(step.get("desc", "")).classes("text-sm text-gray-400")
-                    if step.get("est_min", 0) > 0:
-                        ui.label(f"预估: {step['est_min']} min").classes("text-xs text-yellow-400")
-                    # Timer buttons (working)
-                    if step.get("exec_mode") == "manual" and step.get("est_min", 0) > 0:
-                        # 用 json.dumps() 转义 JS 字符串（防止单引号/双引号导致的语法错误）
-                        step_name_js = json.dumps(step["name"])
-                        sop_id_js = json.dumps(sop_id)
-                        sop_name_js = json.dumps(sop["name"])
-                        btn_html = (
-                            f'<button data-timer-btn="1" data-step-name="{step["name"]}" '
-                            f'onclick="window.handleTimerClick(this, {step_name_js}, {sop_id_js}, {sop_name_js})" '
-                            f'style="padding:8px 16px;background:#e94560;color:#fff;border:none;border-radius:8px;'
-                            f'cursor:pointer;font-size:13px;">开始计时</button>'
-                        )
-                        ui.html(btn_html, sanitize=False)
+        # 支持新格式（stages[].steps[]）和旧格式（顶层 steps[]）
+        stages = sop.get("stages", None)
+        if stages:
+            # 新格式：按阶段分组渲染
+            for stage in stages:
+                stage_name = f"阶段 {stage.get('stage', '?')}：{stage.get('name', '')}"
+                with steps_container:
+                    ui.label(stage_name).classes("text-lg font-bold text-blue-400 mt-4 mb-2")
+                for step in stage.get("steps", []):
+                    _render_one_step(step, steps_container)
+        else:
+            # 旧格式：平铺 steps
+            for step in sop.get("steps", []):
+                _render_one_step(step, steps_container)
+
+    def _render_one_step(step, container):
+        """渲染单个步骤卡片（兼容 description/desc、mode/exec_mode 字段名）"""
+        name = step.get("name", "未命名步骤")
+        # 兼容 description 和 desc 两种字段名
+        desc = step.get("description", step.get("desc", ""))
+        # 兼容 mode 和 exec_mode 两种字段名
+        exec_mode = step.get("mode", step.get("exec_mode", ""))
+        est_min = step.get("est_min", 0)
+
+        with container:
+            with ui.card().classes("w-full p-4 bg-gray-800"):
+                ui.label(name).classes("text-lg font-bold text-white")
+                if desc:
+                    ui.label(desc).classes("text-sm text-gray-400")
+                if est_min > 0:
+                    ui.label(f"预估: {est_min} min").classes("text-xs text-yellow-400")
+                # 计时按钮（手动步骤且预估时间 > 0）
+                if exec_mode == "manual" and est_min > 0:
+                    step_name_js = json.dumps(name)
+                    sop_id_js = json.dumps(sop_id)
+                    sop_name_js = json.dumps(sop.get("name", ""))
+                    btn_html = (
+                        f'<button data-timer-btn="1" data-step-name="{name}" '
+                        f'onclick="window.handleTimerClick(this, {step_name_js}, {sop_id_js}, {sop_name_js})" '
+                        f'style="padding:8px 16px;background:#e94560;color:#fff;border:none;border-radius:8px;'
+                        f'cursor:pointer;font-size:13px;">开始计时</button>'
+                    )
+                    ui.html(btn_html, sanitize=False)
 
     # Add global JS handler for timer buttons
     handler_js = """
