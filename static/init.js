@@ -1845,53 +1845,71 @@
 
         dp.init();
 
-        // 底部面板填满空白——不改 DayPilot 配置（用户批准：日历高度不变，底部面板盖住空白）
-        // 根因（方案15/16 反复失败的真正原因）：DayPilot 在 resize/最大化时会重排 #calendar 容器高度，
-        //   日历底边缘会变动。之前用「钉死日历高度(pinCalendar)」反而阻止了自适应，
-        //   而「稳定循环(setInterval)」又测到 DayPilot 重排前的旧位置，导致面板盖不全 → 残留空白。
-        // 根治（方案17）：用 ResizeObserver 观察 #calendar 尺寸变化，DayPilot 一改容器高度就立即重算面板，
-        //   面板高度 = 视口底 − 日历真实底边缘，严丝合缝盖住。不钉死、不轮询、无竞态。
+        // 底部工具条高度固定（用户要求：始终等于「最大化时」的高度；窗口态时上方日历区被压缩，工具条不动）
+        // 之前方案 14/15/16/17 的面板高度跟着窗口变（窗口 280 / 最大化 332），所以两种状态空白大小不同。
+        // 现在：面板高度只用 CSS 变量 --panel-h 控制（不每帧用 JS 设高度，避免抖动/竞态，也不碰 DayPilot）。
+        // 锁定策略：检测到窗口处于「最大化」时，量一次「视口底 − 日历真实底边缘」写入 --panel-h 并缓存 localStorage；
+        //   之后无论窗口化还是最大化，面板都保持这个固定高度（窗口化时面板盖住更多日历底部 = 日历被压缩）。
+        var PANEL_KEY = 'rubedo-panel-h';
         var BASE_PANEL = 280;
 
-        function fillBlank() {
+        function getCalBottom() {
+            var cal = document.getElementById('calendar');
+            if (!cal) return null;
+            var r = cal.getBoundingClientRect();
+            return (r.height < 50) ? null : r.bottom;   // DayPilot 未渲染好返回 null
+        }
+        function isMaximized() {
+            // 视口接近屏幕可用区域即视为最大化（容差 4px，兼容浏览器边框/地址栏）
+            return window.innerHeight >= (window.screen.availHeight - 4) &&
+                   window.innerWidth  >= (window.screen.availWidth  - 4);
+        }
+        function lockPanelHeight() {
             var cal = document.getElementById('calendar');
             var panel = document.getElementById('detail-panel');
             if (!cal || !panel) return;
 
-            var rect = cal.getBoundingClientRect();
-            if (rect.height < 50) return;           // DayPilot 还没渲染好，跳过
+            var cb = getCalBottom();
+            if (cb == null) return;                      // DayPilot 还没渲染，跳过
 
-            var calBottom = rect.bottom;                   // 日历真实底边缘（视口坐标 y）
-            var panelH = window.innerHeight - calBottom;   // 面板从日历底一直延伸到视口底部
-            if (panelH < BASE_PANEL) panelH = BASE_PANEL;
-
-            panel.style.height = panelH + 'px';
-            // 诊断数据写入全局，供 🔧 诊断工具读取（不依赖控制台）
+            if (isMaximized()) {
+                var h = Math.round(window.innerHeight - cb);
+                if (h >= BASE_PANEL) {
+                    document.documentElement.style.setProperty('--panel-h', h + 'px');
+                    try { localStorage.setItem(PANEL_KEY, String(h)); } catch (e) {}
+                }
+            }
+            // 面板实际高度由 CSS (#detail-panel { height: var(--panel-h) }) 决定，这里只负责在最大化时刷新该变量；
+            // 非最大化不改动已锁定的高度，工具条保持不动。
+            var ph = parseInt(getComputedStyle(panel).height) || BASE_PANEL;
             window.__fillBlank = {
-                calBottom: Math.round(calBottom),
-                panelTop:  Math.round(window.innerHeight - panelH),
-                blank:     Math.round(window.innerHeight - BASE_PANEL - calBottom),
-                panelH:    Math.round(panelH),
-                applied:   panelH > BASE_PANEL + 5,
+                calBottom: Math.round(cb),
+                panelTop:  Math.round(window.innerHeight - ph),
+                blank:     Math.round(window.innerHeight - ph - cb),
+                panelH:    Math.round(ph),
+                applied:   ph > BASE_PANEL + 5,
+                locked:    isMaximized(),
                 ts:        Date.now()
             };
         }
 
-        // 初始化后多次测量，覆盖 DayPilot 渲染晚于 DOMContentLoaded 的情况
-        setTimeout(fillBlank, 200);
-        setTimeout(fillBlank, 800);
-        window.addEventListener('load', fillBlank);
+        // 启动：读取已锁定的高度（上次最大化记录），先于首帧应用，避免首屏跳动
+        (function initPanelLock() {
+            var saved = null;
+            try { saved = localStorage.getItem(PANEL_KEY); } catch (e) {}
+            if (saved) document.documentElement.style.setProperty('--panel-h', saved + 'px');
+        })();
 
-        // ResizeObserver：DayPilot 重排 #calendar（含最大化）时自动重算面板，消除竞态
-        var calEl = document.getElementById('calendar');
-        if (calEl && window.ResizeObserver) {
-            new ResizeObserver(function() { fillBlank(); }).observe(calEl);
-        }
-        // resize 兜底（个别浏览器 ResizeObserver 不触发时）：同步导航栏高度 + 双延时重测
+        // 初始化后测量，覆盖 DayPilot 渲染晚于 DOMContentLoaded 的情况
+        setTimeout(lockPanelHeight, 200);
+        setTimeout(lockPanelHeight, 800);
+        window.addEventListener('load', lockPanelHeight);
+
+        // resize：同步导航栏高度 + 最大化时刷新锁定高度（非最大化只复测，不改动已锁定高度）
         window.addEventListener('resize', function() {
             syncNavHeight();   // 导航栏高度变化时同步（如地址栏收起等）
-            requestAnimationFrame(fillBlank);
-            setTimeout(fillBlank, 300);
+            requestAnimationFrame(lockPanelHeight);
+            setTimeout(lockPanelHeight, 300);
         });
 
         loadEvents();

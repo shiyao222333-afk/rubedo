@@ -89,6 +89,7 @@ window.showDiag = function() {
         ['FillBlank 面板顶部', fb ? fb.panelTop + 'px' : '?'],
         ['FillBlank 计算空白', fb ? fb.blank + 'px' : '?'],
         ['FillBlank 面板高度', fb ? fb.panelH + 'px' : '?'],
+        ['底部面板锁定', fb ? (fb.locked ? '最大化已锁定固定高度' : '保持锁定值(窗口态)') : '未运行'],
         ['window.dp 状态', dp ? '✅ 已设置' : '❌ 未设置'],
     ];
 
