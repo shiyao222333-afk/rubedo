@@ -8,9 +8,24 @@ window.showDiag = function() {
     var containerH = cal.offsetHeight;
 
     // 读取 DayPilot 实际渲染的内部元素高度
-    // DayPilot Lite 渲染结构：#calendar > div（第一个子元素通常是内部容器）
+    // DayPilot Lite 渲染结构：#calendar > div（内部容器，包含表头和网格）
     var innerEl = cal.firstElementChild;
-    var actualGridH = (innerEl && innerEl.offsetHeight > 0) ? innerEl.offsetHeight : '?';
+    var actualGridH = '?';
+    if (innerEl && innerEl.offsetHeight > 0) {
+        actualGridH = innerEl.offsetHeight;
+        // 如果第一个子元素只是表头（40px左右），找它的子元素或下一个兄弟
+        if (actualGridH <= 50) {
+            // 可能是表头，找包含网格的父元素
+            var gridEl = cal.querySelector('[class*="scroll"]')
+                      || cal.querySelector('[class*="body"]')
+                      || cal.querySelector('[class*="grid"]');
+            if (gridEl) actualGridH = gridEl.offsetHeight + (innerEl.offsetHeight || 0);
+        }
+    }
+    // 兜底：用 scrollHeight（包含溢出内容）
+    if (actualGridH === '?' || actualGridH < 100) {
+        actualGridH = cal.scrollHeight || '?';
+    }
 
     // 读取 DayPilot 配置（如果可用）
     // DayPilot Lite 属性可能在 dp 上，也可能在 dp.config 上
