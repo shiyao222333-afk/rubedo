@@ -1834,6 +1834,32 @@
 
         dp.init();
 
+        // 底部面板填满空白——不改 DayPilot，只调整底部面板高度
+        function fillBlank() {
+            var cal = document.getElementById('calendar');
+            var panel = document.getElementById('detail-panel');
+            if (!cal || !panel) return;
+            
+            // DayPilot 渲染的实际高度（读取 DOM，不修改 DayPilot）
+            var dpEl = cal.firstElementChild;
+            var dpH = dpEl ? dpEl.offsetHeight : 0;
+            if (dpH < 50) return; // DayPilot 还没渲染好
+            
+            var calH = cal.offsetHeight;
+            var blank = calH - dpH;
+            
+            if (blank > 5) {
+                // 底部面板向上延伸，盖住日历内部的空白
+                panel.style.height = (280 + blank) + 'px';
+                console.log('[FillBlank] 空白:', blank, 'px, 底部面板:', (280 + blank), 'px');
+            } else {
+                panel.style.height = '280px';
+            }
+        }
+        setTimeout(fillBlank, 500);
+        setTimeout(fillBlank, 1500); // 二次确认 DayPilot 渲染完毕
+        window.addEventListener('resize', function() { setTimeout(fillBlank, 200); });
+
         loadEvents();
         updateWeekRange();
     });

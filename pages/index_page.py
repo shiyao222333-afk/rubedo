@@ -37,7 +37,7 @@ def index():
             top: 0;
             left: 0;
             right: 0;
-            bottom: 280px;
+            bottom: 0;
             overflow: hidden;
         }
         #detail-panel {
@@ -46,6 +46,7 @@ def index():
             left: 0;
             right: 0;
             height: 280px;
+            z-index: 10;
             min-height: 120px;
             background: #16213e;
             border-top: 1px solid #0f3460;
