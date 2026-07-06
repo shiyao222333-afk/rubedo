@@ -1,6 +1,4 @@
-// 日历布局诊断工具 — 同步加载，不依赖 DOMContentLoaded
-// 在 index_page.py 里通过 ui.add_head_html() 同步加载
-
+// 诊断工具 - 同步加载，页面渲染前立即可用
 window.showDiag = function() {
     var cal = document.getElementById('calendar');
     if (!cal) { alert('找不到 #calendar 元素'); return; }
@@ -49,13 +47,9 @@ window.showDiag = function() {
     html += '<p style="margin-top:12px;color:#aaa;font-size:12px;">💡 底部空白>10px = 网格不够高，需要增大cellHeight<br>底部空白<-10px = 网格太高，需要减小cellHeight</p>';
 
     var body = document.getElementById('diag-body');
-    if (body) {
-        body.innerHTML = html;
-    }
+    if (body) body.innerHTML = html;
     var overlay = document.getElementById('diag-overlay');
-    if (overlay) {
-        overlay.classList.add('show');
-    }
+    if (overlay) overlay.classList.add('show');
 };
 
 window.copyDiag = function() {
@@ -64,12 +58,36 @@ window.copyDiag = function() {
     var text = el.innerText || el.textContent;
     if (navigator.clipboard) {
         navigator.clipboard.writeText(text).then(function() {
+            alert('✅ 已复制到剪贴板');
+        }).catch(function() {
+            // 降级方案
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
             alert('✅ 已复制');
         });
     } else {
         var ta = document.createElement('textarea');
-        ta.value = text; document.body.appendChild(ta); ta.select();
-        document.execCommand('copy'); document.body.removeChild(ta);
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
         alert('✅ 已复制');
     }
 };
+
+// 快捷键：Ctrl+Shift+D 打开诊断，Esc 关闭
+document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+        e.preventDefault();
+        if (window.showDiag) window.showDiag();
+    }
+    if (e.key === 'Escape') {
+        var overlay = document.getElementById('diag-overlay');
+        if (overlay) overlay.classList.remove('show');
+    }
+});
