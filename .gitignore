@@ -11,3 +11,9 @@ build/
 *.lock
 rubedo.log
 nul
+
+# 迁移数据库与备份（本地数据，禁止提交）
+rubedo.db
+rubedo.db-wal
+rubedo.db-shm
+data_backup_*/
