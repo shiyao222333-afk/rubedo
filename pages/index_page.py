@@ -28,26 +28,32 @@ def index():
             overflow: hidden;
         }
         .main-layout {
-            display: flex;
-            flex-direction: column;
+            position: relative;
             height: 100vh;
+            overflow: hidden;
         }
         #calendar {
-            width: calc(100% - 16px);
-            flex: 1;
-            margin: 8px;
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            right: 8px;
+            bottom: calc(25vh + 8px);
             min-height: 0;
+            overflow: hidden;
         }
         #detail-panel {
-            display: flex;
-            flex-direction: column;
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
             height: 25vh;
             min-height: 120px;
             max-height: 35vh;
-            flex-shrink: 0;
             background: #16213e;
             border-top: 1px solid #0f3460;
             overflow: auto;
+            display: flex;
+            flex-direction: column;
         }
         #detail-panel.hide {
             display: none;

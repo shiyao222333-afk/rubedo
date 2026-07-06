@@ -279,31 +279,15 @@
         };
 
         // ---- DayPilot 日历初始化 ----
-        // height: "auto" → DayPilot 自动填满 #calendar 容器
-        // cellHeight: 30 → 每格 30px（可手动改，dp.update() 后生效）
-
-        // ---- 动态计算 cellHeight，让网格正好填满容器 ----
-        function calcCellHeight() {
-            var cal = document.getElementById('calendar');
-            if (!cal) return 30;
-            // 可用高度 = 容器高度 − 上下内边距/边框估算(0px)
-            var avail = cal.offsetHeight;
-            if (!avail || avail < 100) avail = 600; // 兜底
-            // 48 格（24小时 × 2格/小时），留出 headerHeight
-            var cellsPerDay = ((24 - 0) * 60) / 30; // 48
-            var h = Math.floor((avail - 40) / cellsPerDay);
-            return Math.max(h, 10); // 最小 10px
-        }
-
-        var initCellHeight = calcCellHeight();
-        console.log('[DayPilot] initCellHeight =', initCellHeight, '(容器高度:', document.getElementById('calendar')?.offsetHeight, ')');
+        // 不用 height:auto，让 DayPilot 按固定 cellHeight 渲染
+        // #calendar 用绝对定位，高度确定，DayPilot 能正确读取
 
         const dp = new DayPilot.Calendar("calendar", {
             viewType:      "Week",
             startDate:     currentStart.format("YYYY-MM-DD"),
             weekStarts:    1,
             cellDuration:  30,
-            cellHeight:    initCellHeight,
+            cellHeight:    30,
             dayBeginHour: 0,
             dayEndHour:   24,
             headerHeight: 40,
@@ -1853,42 +1837,7 @@
 
         dp.init();
 
-        // ---- 容器高度变化后通知 DayPilot 重绘 ----
-        function updateCalendar() {
-            if (window.dp) {
-                window.dp.update();
-                console.log('[DayPilot] update() called');
-            }
-        }
 
-        // 窗口 resize / 底部面板切换时，重新计算 cellHeight
-        function updateCellHeight() {
-            var newH = calcCellHeight();
-            if (dp && dp.cellHeight !== newH) {
-                dp.cellHeight = newH;
-                dp.update();
-                console.log('[DayPilot] cellHeight updated:', newH, '(容器高度:', document.getElementById('calendar')?.offsetHeight, ')');
-            }
-        }
-        window.updateCellHeight = updateCellHeight;
-
-        // 窗口 resize 时重新计算
-        var _dpUpdateTimer = null;
-        window.addEventListener('resize', function() {
-            if (_dpUpdateTimer) clearTimeout(_dpUpdateTimer);
-            _dpUpdateTimer = setTimeout(updateCellHeight, 200);
-        });
-
-        // 底部面板显示/隐藏时重新计算
-        var _detailObserver = new MutationObserver(function() {
-            setTimeout(updateCellHeight, 100);
-        });
-        var detailPanel = document.getElementById('detail-panel');
-        if (detailPanel) {
-            _detailObserver.observe(detailPanel, { attributes: true, attributeFilter: ['class', 'style'] });
-        }
-
-        
         loadEvents();
         updateWeekRange();
     });
