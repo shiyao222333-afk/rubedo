@@ -51,9 +51,12 @@ window.showDiag = function() {
         }
     }
 
-    // 真正的「可见空白」= 面板顶部(基准高度280) − 日历底边缘（视口坐标）
-    // 注意：#calendar 容器高被 DayPilot 内联 height 钉死≈渲染高，所以 容器−渲染≈0，测不到真实空白
-    var panelTopReal = window.innerHeight - 280;
+    // 真正的「可见空白」= 面板真实顶部 − 日历底边缘（视口坐标）
+    // 面板真实顶部 = 视口高度 − 面板实际高度（不要用写死 280，否则最大化后算错）
+    var panelTopReal = '?';
+    if (panelEl) {
+        panelTopReal = window.innerHeight - panelEl.offsetHeight;
+    }
     var calBottomReal = '?';
     if (cal) {
         var cr = cal.getBoundingClientRect();
@@ -112,8 +115,8 @@ window.showDiag = function() {
     });
     html += '</table>';
     html += '<p style="margin-top:12px;color:#aaa;font-size:12px;">';
-    html += '💡 底部空白 > 10px → 网格高度 < 容器高度，需要增大 cellHeight<br>';
-    html += '底部空白 < -10px → 网格高度 > 容器高度，需要减小 cellHeight';
+    html += '💡 可见空白 > 10px → 底部面板没盖住日历底（检查 .main-layout 是否溢出视口 / 面板高度是否够）<br>';
+    html += '可见空白 < -10px → 面板盖住了日历底部（窗口态正常现象，面板顶在日历底之上）';
     html += '</p>';
 
     var body = document.getElementById('diag-body');

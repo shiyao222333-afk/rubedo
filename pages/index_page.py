@@ -29,7 +29,9 @@ def index():
         }
         .main-layout {
             position: relative;
-            height: 100vh;
+            /* 导航栏在 .main-layout 上方占了高度，必须减去，否则整体溢出视口 84px，
+               底部面板最底下 84px 被裁到屏幕外 → 最大化后日历底和面板顶之间露出空白 */
+            height: calc(100vh - var(--nav-h, 72px));
             overflow: hidden;
         }
         #calendar {

@@ -1832,6 +1832,17 @@
         // 先暴露到全局（在 init() 之前），确保诊断工具一定能读到
         window.dp = dp;
 
+        // 让 .main-layout 高度 = 100vh − 导航栏高度，消除整体溢出视口的 bug
+        // （根因：导航栏在 .main-layout 上方，main-layout 还写 height:100vh 就溢出 84px，
+        //   底部面板底边被裁到屏幕外，最大化后日历底和面板顶之间露出 84px 空白）
+        function syncNavHeight() {
+            var nav = document.querySelector('.nav-bar');
+            if (nav) {
+                document.documentElement.style.setProperty('--nav-h', nav.offsetHeight + 'px');
+            }
+        }
+        syncNavHeight();
+
         dp.init();
 
         // 底部面板填满空白——不改 DayPilot，只调整底部面板高度（用户批准：日历高度不变）
@@ -1900,6 +1911,7 @@
         // 窗口变化（含「最大化」）：DayPilot 会重排日历底边缘，
         // 先立即测一次，再用稳定循环反复盖住竞态窗口，最终无空白。不碰 DayPilot 配置。
         window.addEventListener('resize', function() {
+            syncNavHeight();   // 导航栏高度变化时同步（如地址栏收起等）
             requestAnimationFrame(fillBlank);
             startFillLoop();
         });
