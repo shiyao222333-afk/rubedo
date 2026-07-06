@@ -1895,30 +1895,14 @@
         document.getElementById('diag-overlay').classList.add('show');
     };
 
-    window.copyDiagnostics = function() {
-        var text = document.getElementById('diag-body').innerText || document.getElementById('diag-body').textContent;
-        if (!text) { alert('请先运行诊断'); return; }
-        navigator.clipboard.writeText(text).then(function() {
-            alert('✅ 诊断结果已复制到剪贴板');
-        }).catch(function() {
-            var ta = document.createElement('textarea');
-            ta.value = text;
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand('copy');
-            document.body.removeChild(ta);
-            alert('✅ 诊断结果已复制');
-        });
-    };
-
-    // Ctrl+Shift+D 打开诊断
-    document.addEventListener('keydown', function(e) {
-        if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+    // Ctrl+Shift+D 打开诊断（调用内联在 HTML 里的 showDiag）
+    document.addEventListener("keydown", function(e) {
+        if (e.ctrlKey && e.shiftKey && e.key === "D") {
             e.preventDefault();
-            window.showDiagnostics();
+            if (window.showDiag) window.showDiag();
         }
-        // Esc 关闭诊断
-        if (e.key === 'Escape') {
-            document.getElementById('diag-overlay')?.classList.remove('show');
+        if (e.key === "Escape") {
+            var overlay = document.getElementById("diag-overlay");
+            if (overlay) overlay.classList.remove("show");
         }
     });

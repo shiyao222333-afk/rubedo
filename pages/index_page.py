@@ -278,7 +278,7 @@ def index():
         <button onclick="navWeek(1)">下周 →</button>
         <button onclick="showSettings()" style="margin-left:auto;">设置</button>
         <button onclick="window.open('/audit', '_self')">审计</button>
-        <button onclick="window.showDiagnostics ? window.showDiagnostics() : alert('请刷新页面')">🔧 诊断</button>
+        <button onclick="showDiag()">🔧 诊断</button>
     </div>""", sanitize=False)
 
     # ---- Main layout（上下分栏）----
@@ -312,17 +312,86 @@ def index():
         </div>
     </div>""", sanitize=False)
 
-    # ---- 诊断浮窗（默认隐藏，Ctrl+Shift+D 显示）----
+    # ---- 诊断浮窗（内联 JS，确保函数一定可用）----
     ui.html("""<div class="diag-overlay" id="diag-overlay" onclick="if(event.target===this)this.classList.remove('show')">
         <div class="diag-panel">
             <h3>🔬 日历布局诊断</h3>
             <div id="diag-body">运行中...</div>
             <div class="diag-actions">
-                <button onclick="copyDiagnostics()">📋 一键复制</button>
+                <button onclick="copyDiag()">📋 一键复制</button>
                 <button onclick="document.getElementById('diag-overlay').classList.remove('show')">关闭</button>
             </div>
         </div>
-    </div>""", sanitize=False)
+    </div>
+    <script>
+    // 诊断函数内联，确保一定可用
+    window.showDiag = function() {
+        var cal = document.getElementById('calendar');
+        if (!cal) { alert('找不到 #calendar 元素'); return; }
+
+        // 读取 DayPilot 配置（如果存在）
+        var dp = window.dp;
+        var cellH = (dp && dp.config && dp.config.cellHeight) ? dp.config.cellHeight : '?';
+        var headerH = (dp && dp.config && dp.config.headerHeight) ? dp.config.headerHeight : '?';
+        var dpHeight = (dp && dp.config && dp.config.height) ? JSON.stringify(dp.config.height) : '?';
+
+        // 计算网格高度
+        var gridH = '?';
+        if (cellH !== '?' && headerH !== '?') {
+            gridH = cellH * 48 + headerH;
+        }
+
+        // 读取 DOM 高度
+        var containerH = cal.offsetHeight;
+        var gap = (gridH !== '?' && containerH) ? containerH - gridH : '?';
+
+        var mainEl = document.querySelector('.main-layout');
+        var panelEl = document.getElementById('detail-panel');
+
+        var rows = [
+            ['视口高度 (window.innerHeight)', window.innerHeight + 'px'],
+            ['main-layout 高度', (mainEl ? mainEl.offsetHeight : '?') + 'px'],
+            ['#calendar 容器高度', containerH + 'px'],
+            ['#detail-panel 高度', (panelEl ? panelEl.offsetHeight : '?') + 'px'],
+            ['DayPilot cellHeight', cellH + 'px'],
+            ['DayPilot headerHeight', headerH + 'px'],
+            ['网格理论高度 (cellH×48+header)', gridH + 'px'],
+            ['底部空白 (容器−网格)', gap + 'px'],
+            ['DayPilot config.height', dpHeight],
+        ];
+
+        var html = '<table><tr><th>项目</th><th>值</th></tr>';
+        rows.forEach(function(r) {
+            var val = parseInt(r[1]);
+            var cls = '';
+            if (r[0].indexOf('空白') >= 0 && val !== '?') {
+                cls = val > 10 ? 'bad' : val < -10 ? 'warn' : 'ok';
+            }
+            html += '<tr><td>' + r[0] + '</td><td class="' + cls + '">' + r[1] + '</td></tr>';
+        });
+        html += '</table>';
+        html += '<p style="margin-top:12px;color:#aaa;font-size:12px;">💡 底部空白>10px = 网格不够高，需要增大cellHeight<br>底部空白<-10px = 网格太高，需要减小cellHeight</p>';
+
+        document.getElementById('diag-body').innerHTML = html;
+        document.getElementById('diag-overlay').classList.add('show');
+    };
+
+    window.copyDiag = function() {
+        var el = document.getElementById('diag-body');
+        if (!el) { alert('请先运行诊断'); return; }
+        var text = el.innerText || el.textContent;
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(function() {
+                alert('✅ 已复制');
+            });
+        } else {
+            var ta = document.createElement('textarea');
+            ta.value = text; document.body.appendChild(ta); ta.select();
+            document.execCommand('copy'); document.body.removeChild(ta);
+            alert('✅ 已复制');
+        }
+    };
+    <\/script>""", sanitize=False)
 
     # ---- DayPilot init ----
     ui.add_body_html(f'<script src="/static/init.js?v={int(time.time())}"></script>')
