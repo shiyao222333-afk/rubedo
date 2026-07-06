@@ -48,8 +48,8 @@ def index():
             bottom: 0;
             left: 0;
             right: 0;
-            /* 工具条高度固定：始终等于 350px（由 JS 写入 --panel-h，窗口态/最大化态一致） */
-            height: var(--panel-h, 350px);
+            /* 工具条高度固定：始终等于 360px（由 JS 写入 --panel-h，窗口态/最大化态一致） */
+            height: var(--panel-h, 360px);
             z-index: 10;
             min-height: 120px;
             background: #16213e;

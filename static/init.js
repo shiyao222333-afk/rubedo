@@ -1848,7 +1848,7 @@
         // 底部工具条高度固定（用户要求：始终固定为 350px；窗口态时上方日历区被压缩，工具条不动）
         // 直接锁定一个固定值，不依赖 DayPilot 高度、也不依赖窗口测量，确保窗口态/最大化态工具条高度完全一致。
         var PANEL_KEY = 'rubedo-panel-h';
-        var TARGET_PANEL = 350;   // 工具条固定高度（用户指定 350px）
+        var TARGET_PANEL = 360;   // 工具条固定高度（用户指定 360px）
 
         function lockPanelHeight() {
             var cal = document.getElementById('calendar');
