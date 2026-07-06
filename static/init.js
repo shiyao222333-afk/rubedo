@@ -1854,3 +1854,71 @@
         updateWeekRange();
     });
     
+    // ---- 日历布局诊断工具 ----
+    window.showDiagnostics = function() {
+        var cal = document.getElementById('calendar');
+        var dp = window.dp;
+        if (!cal || !dp) { alert('日历未初始化'); return; }
+
+        var cellH     = dp.config.cellHeight || 30;
+        var headerH   = dp.config.headerHeight || 40;
+        var gridH     = cellH * 48 + headerH;
+        var containerH = cal.offsetHeight;
+        var gap       = containerH - gridH;
+
+        var mainH  = document.querySelector('.main-layout')?.offsetHeight || 0;
+        var panelH = document.getElementById('detail-panel')?.offsetHeight || 0;
+        var vh      = window.innerHeight;
+
+        var rows = [
+            ['视口高度 (window.innerHeight)', vh + 'px'],
+            ['main-layout 高度', mainH + 'px'],
+            ['#calendar 容器高度', containerH + 'px'],
+            ['#detail-panel 高度', panelH + 'px'],
+            ['DayPilot cellHeight', cellH + 'px'],
+            ['DayPilot headerHeight', headerH + 'px'],
+            ['网格理论高度 (cellH×48+header)', gridH + 'px'],
+            ['底部空白 (容器−网格)', gap + 'px', gap > 10 ? 'bad' : gap < -10 ? 'warn' : 'ok'],
+            ['DayPilot config.height', JSON.stringify(dp.config.height)],
+            ['DayPilot 实际渲染高度', (cal.querySelector('.daypilot-calendar-inner')?.offsetHeight || '?') + 'px'],
+        ];
+
+        var html = '<table><tr><th>项目</th><th>值</th></tr>';
+        rows.forEach(function(r) {
+            var cls = r[2] || '';
+            html += '<tr><td>' + r[0] + '</td><td class="' + cls + '">' + r[1] + '</td></tr>';
+        });
+        html += '</table>';
+        html += '<p style="margin-top:12px;color:#aaa;">💡 如果"底部空白">10px，说明网格高度 < 容器高度，需要增大 cellHeight。</p>';
+
+        document.getElementById('diag-body').innerHTML = html;
+        document.getElementById('diag-overlay').classList.add('show');
+    };
+
+    window.copyDiagnostics = function() {
+        var text = document.getElementById('diag-body').innerText || document.getElementById('diag-body').textContent;
+        if (!text) { alert('请先运行诊断'); return; }
+        navigator.clipboard.writeText(text).then(function() {
+            alert('✅ 诊断结果已复制到剪贴板');
+        }).catch(function() {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            alert('✅ 诊断结果已复制');
+        });
+    };
+
+    // Ctrl+Shift+D 打开诊断
+    document.addEventListener('keydown', function(e) {
+        if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+            e.preventDefault();
+            window.showDiagnostics();
+        }
+        // Esc 关闭诊断
+        if (e.key === 'Escape') {
+            document.getElementById('diag-overlay')?.classList.remove('show');
+        }
+    });

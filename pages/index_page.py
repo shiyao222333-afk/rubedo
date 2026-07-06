@@ -233,6 +233,35 @@ def index():
         .empty-guide .icon { font-size: 48px; margin-bottom: 12px; }
         .empty-guide .title { font-size: 18px; margin-bottom: 8px; color: #aaa; }
         .empty-guide .hint { font-size: 13px; line-height: 1.8; }
+        /* ---- 诊断浮窗 ---- */
+        .diag-overlay {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); z-index: 9999;
+            align-items: center; justify-content: center;
+        }
+        .diag-overlay.show { display: flex; }
+        .diag-panel {
+            background: #16213e; border: 1px solid #0f3460; border-radius: 12px;
+            width: 640px; max-height: 80vh; overflow: auto;
+            padding: 20px; color: #eee; font-size: 13px;
+        }
+        .diag-panel h3 { margin: 0 0 12px; color: #e94560; font-size: 16px; }
+        .diag-panel table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+        .diag-panel th, .diag-panel td {
+            text-align: left; padding: 6px 10px; border-bottom: 1px solid #0f3460;
+        }
+        .diag-panel th { color: #e94560; font-size: 12px; }
+        .diag-panel td { color: #ccc; font-family: monospace; }
+        .diag-panel .ok { color: #4caf50; }
+        .diag-panel .warn { color: #ff9800; }
+        .diag-panel .bad { color: #f44336; }
+        .diag-actions { display: flex; gap: 8px; margin-top: 12px; }
+        .diag-actions button {
+            padding: 8px 16px; border: 1px solid #0f3460; border-radius: 6px;
+            background: #0f3460; color: #eee; cursor: pointer; font-size: 13px;
+        }
+        .diag-actions button:hover { background: #e94560; color: #fff; }
     </style>
     """)
 
@@ -278,6 +307,18 @@ def index():
                 点击事项查看详情<br>
                 右键事项可快速标记完成、编辑或删除<br>
                 试试创建你的第一条待办吧！
+            </div>
+        </div>
+    </div>""", sanitize=False)
+
+    # ---- 诊断浮窗（默认隐藏，Ctrl+Shift+D 显示）----
+    ui.html("""<div class="diag-overlay" id="diag-overlay" onclick="if(event.target===this)this.classList.remove('show')">
+        <div class="diag-panel">
+            <h3>🔬 日历布局诊断</h3>
+            <div id="diag-body">运行中...</div>
+            <div class="diag-actions">
+                <button onclick="copyDiagnostics()">📋 一键复制</button>
+                <button onclick="document.getElementById('diag-overlay').classList.remove('show')">关闭</button>
             </div>
         </div>
     </div>""", sanitize=False)
