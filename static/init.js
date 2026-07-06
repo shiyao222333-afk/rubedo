@@ -53,8 +53,8 @@
                 }
                 // 底部面板显示后，通知 DayPilot 重绘（容器高度变了）
                 setTimeout(function() {
-                    updateCalendar();
-                    console.log('[DayPilot] updateCalendar() called after DetailPanel.show');
+                    if (window.dp) window.dp.update();
+                    console.log('[DayPilot] dp.update() called after DetailPanel.show');
                 }, 100);
             },
 
@@ -1833,7 +1833,6 @@
 
         // 先暴露到全局（在 init() 之前），确保诊断工具一定能读到
         window.dp = dp;
-        window.updateCalendar = updateCalendar;  // 暴露供调试
 
         dp.init();
 
