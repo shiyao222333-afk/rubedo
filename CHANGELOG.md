@@ -8,6 +8,7 @@
 
 ### Added
 - **系统架构设计文档 `docs/ARCHITECTURE.md` v1.0**：模块化单体 + 5 边界 + SQLite + 集成适配域，含 4 条 ADR 与长期路线；附"已知局限与未来修订"清单
+- **PROJECT_PLAN 对齐架构**：v0.4 拆为「v0.4.0 地基（模块化+SQLite+集成骨架）」+「v0.4.1 环节自动化」；存储决策改为 v0.4 起迁 SQLite（见 ARCHITECTURE ADR-001）；新增 `modules/` 包骨架（5 边界 + shared 数据层）
 - **编辑对话框新增时间字段**：编辑事件时现在可以修改开始时间和结束时间
 - **后端 API 支持更新时间**：`/api/events/update` 现在接受 `start` 和 `end` 字段
 - **utils.py 补回缺失函数**：`all_events_in_range()`, `load_sop()`, `calc_hourly_rate()`（上次重构时丢失，本次补回）
