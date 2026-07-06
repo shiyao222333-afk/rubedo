@@ -1866,7 +1866,16 @@
         }
         setTimeout(fillBlank, 500);
         setTimeout(fillBlank, 1500); // 二次确认 DayPilot 渲染完毕
-        window.addEventListener('resize', function() { setTimeout(fillBlank, 200); });
+
+        // 窗口变化（含最大化）后让 DayPilot 重适应容器高度，fillBlank 兜底盖住残余空白
+        window.addEventListener('resize', function() {
+            setTimeout(function() {
+                if (window.dp && typeof dp.update === 'function') {
+                    try { dp.update(); } catch (e) {}
+                }
+                fillBlank();
+            }, 200);
+        });
 
         loadEvents();
         updateWeekRange();
