@@ -1835,26 +1835,29 @@
         dp.init();
 
         // 底部面板填满空白——不改 DayPilot，只调整底部面板高度
+        // （用户批准方案：日历高度不变，底部面板盖住日历内部的空白）
         function fillBlank() {
             var cal = document.getElementById('calendar');
             var panel = document.getElementById('detail-panel');
             if (!cal || !panel) return;
-            
+
             // DayPilot 渲染的实际高度（读取 DOM，不修改 DayPilot）
-            var dpEl = cal.firstElementChild;
-            var dpH = dpEl ? dpEl.offsetHeight : 0;
-            if (dpH < 50) return; // DayPilot 还没渲染好
-            
+            // DayPilot Lite 结构：#calendar > div（根容器，含表头 + 网格）
+            var inner = cal.firstElementChild;
+            var dpH = inner ? inner.offsetHeight : 0;
+            if (dpH < 50) dpH = cal.scrollHeight; // 兜底：用溢出高度
+            if (dpH < 50) return;                 // DayPilot 还没渲染好，跳过
+
             var calH = cal.offsetHeight;
             var blank = calH - dpH;
-            
+
             if (blank > 5) {
-                // 底部面板向上延伸，盖住日历内部的空白
+                // 底部面板用 bottom:0 锚定，加高即向上延伸，盖住日历内部的空白
                 panel.style.height = (280 + blank) + 'px';
             } else {
                 panel.style.height = '280px';
             }
-            // 把诊断数据写入全局，供 🔧 诊断工具读取（不依赖控制台）
+            // 诊断数据写入全局，供 🔧 诊断工具读取（不依赖控制台）
             window.__fillBlank = {
                 calH:   calH,
                 dpH:    dpH,
@@ -1864,17 +1867,23 @@
                 ts:     Date.now()
             };
         }
-        setTimeout(fillBlank, 500);
-        setTimeout(fillBlank, 1500); // 二次确认 DayPilot 渲染完毕
 
-        // 窗口变化（含最大化）后让 DayPilot 重适应容器高度，fillBlank 兜底盖住残余空白
+        // 等 DayPilot 完全渲染后多次测量，覆盖初始化晚于 DOMContentLoaded 的情况
+        function scheduleFill() {
+            fillBlank();
+            // 双 rAF：确保本次布局/重绘完成后再测一次，避免读到旧高度
+            requestAnimationFrame(function() { requestAnimationFrame(fillBlank); });
+        }
+        setTimeout(fillBlank, 300);
+        setTimeout(fillBlank, 800);
+        setTimeout(fillBlank, 1500);
+        window.addEventListener('load', scheduleFill);
+
+        // 窗口变化（含「最大化」）：DayPilot auto 高度只在 init 时算一次，
+        // 容器变大后网格不会自动重算 → 日历内部底部出现空白。
+        // 不碰 DayPilot，直接把底部面板加高盖住空白（用户批准方案）。
         window.addEventListener('resize', function() {
-            setTimeout(function() {
-                if (window.dp && typeof dp.update === 'function') {
-                    try { dp.update(); } catch (e) {}
-                }
-                fillBlank();
-            }, 200);
+            setTimeout(scheduleFill, 250);
         });
 
         loadEvents();
