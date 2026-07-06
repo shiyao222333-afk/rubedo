@@ -2,6 +2,22 @@
   "2026-06-29": {
     "recurring-schedule-2075350c-2026-06-29": {
       "status": "pending",
+      "locked": false,
+      "start": "2026-06-29T17:00:00",
+      "end": "2026-06-29T19:30:00"
+    }
+  },
+  "2026-07-01": {
+    "recurring-schedule-2075350c-2026-07-01": {
+      "status": "pending"
+    },
+    "recurring-schedule-ced742cd-2026-07-01": {
+      "status": "pending",
+      "locked": false
+    }
+  },
+  "2026-06-30": {
+    "recurring-schedule-2075350c-2026-06-30": {
       "locked": false
     }
   }

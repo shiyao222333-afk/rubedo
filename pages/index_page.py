@@ -40,7 +40,7 @@ def index():
             left: 0;
             right: 0;
             /* 底部让出固定高度给工具条；面板高度锁死后，窗口化时日历区被压缩（盖住一部分） */
-            bottom: var(--panel-h, 332px);
+            bottom: var(--panel-h, 350px);
             overflow: hidden;
         }
         #detail-panel {
@@ -48,8 +48,8 @@ def index():
             bottom: 0;
             left: 0;
             right: 0;
-            /* 工具条高度固定：始终等于最大化时算出的高度（由 JS 在最大化时写入 --panel-h 并缓存） */
-            height: var(--panel-h, 332px);
+            /* 工具条高度固定：始终等于 350px（由 JS 写入 --panel-h，窗口态/最大化态一致） */
+            height: var(--panel-h, 350px);
             z-index: 10;
             min-height: 120px;
             background: #16213e;

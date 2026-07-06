@@ -6,3 +6,8 @@ data/holidays_*.json
 *.egg-info/
 dist/
 build/
+
+# 运行时产物（filelock 锁文件、日志、误建的设备名文件）
+*.lock
+rubedo.log
+nul

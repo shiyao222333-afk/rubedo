@@ -1,7 +1,7 @@
 [
   {
-    "id": "schedule-2075350c",
-    "title": "📋 1",
+    "id": "schedule-ced742cd",
+    "title": "修复测试",
     "repeat_mode": "daily",
     "target_type": "",
     "target_id": "",
@@ -9,8 +9,8 @@
     "target_name": "",
     "preheat_days": 7,
     "start_date": "2026-06-29",
-    "start_time": "17:00",
-    "duration_minutes": 180,
+    "start_time": "19:00",
+    "duration_minutes": 120,
     "kind": "sop",
     "sop_page": "",
     "description": "",
