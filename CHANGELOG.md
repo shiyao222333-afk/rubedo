@@ -7,6 +7,7 @@
 ## [Unreleased]
 
 ### Added
+- **系统架构设计文档 `docs/ARCHITECTURE.md` v1.0**：模块化单体 + 5 边界 + SQLite + 集成适配域，含 4 条 ADR 与长期路线；附"已知局限与未来修订"清单
 - **编辑对话框新增时间字段**：编辑事件时现在可以修改开始时间和结束时间
 - **后端 API 支持更新时间**：`/api/events/update` 现在接受 `start` 和 `end` 字段
 - **utils.py 补回缺失函数**：`all_events_in_range()`, `load_sop()`, `calc_hourly_rate()`（上次重构时丢失，本次补回）
