@@ -1845,46 +1845,29 @@
 
         dp.init();
 
-        // 底部面板填满空白——不改 DayPilot，只调整底部面板高度（用户批准：日历高度不变）
-        // 根因（方案15）：DayPilot 在 window resize 时会自己重排 #calendar 的底边缘，
-        //   导致 fillBlank 测到的是旧位置，面板盖过去后 DayPilot 又把日历底推下，留出新空隙（竞态）。
-        // 根治：① 把日历高度「钉死」为 DayPilot 初始化时渲染的固定值（!important 内联强制，盖过 DayPilot 重排）；
-        //       ② resize 后用「稳定循环」多次重测面板，盖住竞态窗口，最终收敛到无空白。
+        // 底部面板填满空白——不改 DayPilot 配置（用户批准：日历高度不变，底部面板盖住空白）
+        // 根因（方案15/16 反复失败的真正原因）：DayPilot 在 resize/最大化时会重排 #calendar 容器高度，
+        //   日历底边缘会变动。之前用「钉死日历高度(pinCalendar)」反而阻止了自适应，
+        //   而「稳定循环(setInterval)」又测到 DayPilot 重排前的旧位置，导致面板盖不全 → 残留空白。
+        // 根治（方案17）：用 ResizeObserver 观察 #calendar 尺寸变化，DayPilot 一改容器高度就立即重算面板，
+        //   面板高度 = 视口底 − 日历真实底边缘，严丝合缝盖住。不钉死、不轮询、无竞态。
         var BASE_PANEL = 280;
-        var CAL_PINNED = null;   // 日历被 DayPilot 钉死的固定高度（只捕获一次）
-        var fillTimer  = null;   // 稳定循环定时器
-
-        // 把日历高度固定，阻止 DayPilot resize 时重排移动日历底边缘
-        function pinCalendar() {
-            var cal = document.getElementById('calendar');
-            if (!cal) return;
-            if (CAL_PINNED == null) {
-                var h = cal.getBoundingClientRect().height;
-                // 只接受稳定值：>200 排除未渲染，<1000 排除未压缩的全网格(1480)
-                if (h > 200 && h < 1000) CAL_PINNED = h;
-            }
-            if (CAL_PINNED != null) {
-                cal.style.setProperty('height', CAL_PINNED + 'px', 'important');
-            }
-        }
 
         function fillBlank() {
             var cal = document.getElementById('calendar');
             var panel = document.getElementById('detail-panel');
             if (!cal || !panel) return;
 
-            pinCalendar();
             var rect = cal.getBoundingClientRect();
             if (rect.height < 50) return;           // DayPilot 还没渲染好，跳过
 
-            var calBottom = rect.bottom;                   // 日历底边缘（视口坐标 y）
+            var calBottom = rect.bottom;                   // 日历真实底边缘（视口坐标 y）
             var panelH = window.innerHeight - calBottom;   // 面板从日历底一直延伸到视口底部
             if (panelH < BASE_PANEL) panelH = BASE_PANEL;
 
             panel.style.height = panelH + 'px';
             // 诊断数据写入全局，供 🔧 诊断工具读取（不依赖控制台）
             window.__fillBlank = {
-                calH:      Math.round(CAL_PINNED || rect.height),
                 calBottom: Math.round(calBottom),
                 panelTop:  Math.round(window.innerHeight - panelH),
                 blank:     Math.round(window.innerHeight - BASE_PANEL - calBottom),
@@ -1894,26 +1877,21 @@
             };
         }
 
-        // 稳定循环：反复测量并盖空白，覆盖 DayPilot 渲染/重排晚于当前帧的竞态窗口
-        function startFillLoop() {
-            if (fillTimer) clearInterval(fillTimer);
-            var n = 0;
-            fillTimer = setInterval(function() {
-                fillBlank();
-                if (++n >= 16) { clearInterval(fillTimer); fillTimer = null; }  // 16×100ms ≈ 1.6s
-            }, 100);
-        }
-
         // 初始化后多次测量，覆盖 DayPilot 渲染晚于 DOMContentLoaded 的情况
-        setTimeout(startFillLoop, 200);
+        setTimeout(fillBlank, 200);
+        setTimeout(fillBlank, 800);
         window.addEventListener('load', fillBlank);
 
-        // 窗口变化（含「最大化」）：DayPilot 会重排日历底边缘，
-        // 先立即测一次，再用稳定循环反复盖住竞态窗口，最终无空白。不碰 DayPilot 配置。
+        // ResizeObserver：DayPilot 重排 #calendar（含最大化）时自动重算面板，消除竞态
+        var calEl = document.getElementById('calendar');
+        if (calEl && window.ResizeObserver) {
+            new ResizeObserver(function() { fillBlank(); }).observe(calEl);
+        }
+        // resize 兜底（个别浏览器 ResizeObserver 不触发时）：同步导航栏高度 + 双延时重测
         window.addEventListener('resize', function() {
             syncNavHeight();   // 导航栏高度变化时同步（如地址栏收起等）
             requestAnimationFrame(fillBlank);
-            startFillLoop();
+            setTimeout(fillBlank, 300);
         });
 
         loadEvents();

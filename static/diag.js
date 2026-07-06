@@ -51,6 +51,9 @@ window.showDiag = function() {
         }
     }
 
+    var mainEl = document.querySelector('.main-layout');
+    var panelEl = document.getElementById('detail-panel');
+
     // 真正的「可见空白」= 面板真实顶部 − 日历底边缘（视口坐标）
     // 面板真实顶部 = 视口高度 − 面板实际高度（不要用写死 280，否则最大化后算错）
     var panelTopReal = '?';
@@ -62,10 +65,7 @@ window.showDiag = function() {
         var cr = cal.getBoundingClientRect();
         calBottomReal = cr.bottom;
     }
-    var gap = (calBottomReal !== '?' ) ? (panelTopReal - calBottomReal) : '?';
-
-    var mainEl = document.querySelector('.main-layout');
-    var panelEl = document.getElementById('detail-panel');
+    var gap = (calBottomReal !== '?' && panelTopReal !== '?' ) ? (panelTopReal - calBottomReal) : '?';
 
     // 读取底部面板覆盖（fillBlank）的诊断数据
     var fb = window.__fillBlank;
