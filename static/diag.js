@@ -8,22 +8,29 @@ window.showDiag = function() {
     var containerH = cal.offsetHeight;
 
     // 读取 DayPilot 实际渲染的内部元素高度
-    var innerEl = cal.querySelector('.daypilot-calendar-inner')
-                || cal.querySelector('.dp-calendar')
-                || cal.querySelector('[class*="daypilot"]');
-    var actualGridH = innerEl ? innerEl.offsetHeight : '?';
+    // DayPilot Lite 渲染结构：#calendar > div（第一个子元素通常是内部容器）
+    var innerEl = cal.firstElementChild;
+    var actualGridH = (innerEl && innerEl.offsetHeight > 0) ? innerEl.offsetHeight : '?';
 
     // 读取 DayPilot 配置（如果可用）
+    // DayPilot Lite 属性可能在 dp 上，也可能在 dp.config 上
     var dp = window.dp;
     var cellH = '?';
     var headerH = '?';
     var dpHeight = '?';
     var gridFromConfig = '?';
 
-    if (dp && dp.config) {
-        cellH = dp.config.cellHeight || '?';
-        headerH = dp.config.headerHeight || '?';
-        dpHeight = JSON.stringify(dp.config.height);
+    if (dp) {
+        // 尝试多种可能的属性路径
+        cellH = (dp.cellHeight !== undefined) ? dp.cellHeight
+              : (dp.config && dp.config.cellHeight !== undefined) ? dp.config.cellHeight
+              : '?';
+        headerH = (dp.headerHeight !== undefined) ? dp.headerHeight
+                : (dp.config && dp.config.headerHeight !== undefined) ? dp.config.headerHeight
+                : '?';
+        dpHeight = (dp.height !== undefined) ? JSON.stringify(dp.height)
+                 : (dp.config && dp.config.height !== undefined) ? JSON.stringify(dp.config.height)
+                 : '?';
         if (cellH !== '?' && headerH !== '?') {
             gridFromConfig = cellH * 48 + headerH;
         }
