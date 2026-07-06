@@ -41,8 +41,8 @@ def index():
         #detail-panel {
             display: flex;
             flex-direction: column;
-            flex: 0 0 auto;
-            max-height: 35vh;
+            flex: 0 0 25vh;
+            min-height: 120px;
             background: #16213e;
             border-top: 1px solid #0f3460;
             overflow: hidden;
