@@ -28,25 +28,18 @@ def index():
             overflow: hidden;
         }
         .main-layout {
-            position: relative;
+            display: flex;
+            flex-direction: column;
             height: 100vh;
             overflow: hidden;
         }
         #calendar {
-            position: absolute;
-            top: 8px;
-            left: 8px;
-            right: 8px;
-            bottom: calc(25vh + 8px);
+            flex: 1;
             min-height: 0;
             overflow: hidden;
         }
         #detail-panel {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 25vh;
+            flex: 0 0 25vh;
             min-height: 120px;
             max-height: 35vh;
             background: #16213e;

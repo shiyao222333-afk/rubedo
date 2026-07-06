@@ -279,15 +279,13 @@
         };
 
         // ---- DayPilot 日历初始化 ----
-        // 不用 height:auto，让 DayPilot 按固定 cellHeight 渲染
-        // #calendar 用绝对定位，高度确定，DayPilot 能正确读取
-
-        const dp = new DayPilot.Calendar("calendar", {
+            const dp = new DayPilot.Calendar("calendar", {
             viewType:      "Week",
             startDate:     currentStart.format("YYYY-MM-DD"),
             weekStarts:    1,
             cellDuration:  30,
             cellHeight:    30,
+            height:        "100%",
             dayBeginHour: 0,
             dayEndHour:   24,
             headerHeight: 40,
@@ -1836,6 +1834,18 @@
 
         dp.init();
 
+        // 强制让 DayPilot 填满容器（修复底部空白）
+        function fixCalendarHeight() {
+            var cal = document.getElementById('calendar');
+            if (!cal || !window.dp) return;
+            var h = cal.offsetHeight;
+            if (h > 0) {
+                dp.config.height = h;
+                dp.update();
+            }
+        }
+        setTimeout(fixCalendarHeight, 300);
+        window.addEventListener('resize', fixCalendarHeight);
 
         loadEvents();
         updateWeekRange();
