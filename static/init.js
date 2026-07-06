@@ -285,7 +285,7 @@
             weekStarts:    1,
             cellDuration:  30,
             cellHeight:    30,
-            height:        "100%",
+            height:        "auto",
             dayBeginHour: 0,
             dayEndHour:   24,
             headerHeight: 40,
@@ -1833,19 +1833,6 @@
         window.dp = dp;
 
         dp.init();
-
-        // 强制让 DayPilot 填满容器（修复底部空白）
-        function fixCalendarHeight() {
-            var cal = document.getElementById('calendar');
-            if (!cal || !window.dp) return;
-            var h = cal.offsetHeight;
-            if (h > 0) {
-                dp.config.height = h;
-                dp.update();
-            }
-        }
-        setTimeout(fixCalendarHeight, 300);
-        window.addEventListener('resize', fixCalendarHeight);
 
         loadEvents();
         updateWeekRange();
