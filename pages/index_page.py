@@ -278,6 +278,7 @@ def index():
         <button onclick="navWeek(1)">下周 →</button>
         <button onclick="showSettings()" style="margin-left:auto;">设置</button>
         <button onclick="window.open('/audit', '_self')">审计</button>
+        <button onclick="window.showDiagnostics ? window.showDiagnostics() : alert('请刷新页面')">🔧 诊断</button>
     </div>""", sanitize=False)
 
     # ---- Main layout（上下分栏）----
