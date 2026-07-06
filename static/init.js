@@ -1851,10 +1851,18 @@
             if (blank > 5) {
                 // 底部面板向上延伸，盖住日历内部的空白
                 panel.style.height = (280 + blank) + 'px';
-                console.log('[FillBlank] 空白:', blank, 'px, 底部面板:', (280 + blank), 'px');
             } else {
                 panel.style.height = '280px';
             }
+            // 把诊断数据写入全局，供 🔧 诊断工具读取（不依赖控制台）
+            window.__fillBlank = {
+                calH:   calH,
+                dpH:    dpH,
+                blank:  blank,
+                panelH: parseInt(panel.style.height) || 280,
+                applied: blank > 5,
+                ts:     Date.now()
+            };
         }
         setTimeout(fillBlank, 500);
         setTimeout(fillBlank, 1500); // 二次确认 DayPilot 渲染完毕

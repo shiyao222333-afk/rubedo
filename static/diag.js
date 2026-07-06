@@ -62,6 +62,12 @@ window.showDiag = function() {
     var mainEl = document.querySelector('.main-layout');
     var panelEl = document.getElementById('detail-panel');
 
+    // 读取底部面板覆盖（fillBlank）的诊断数据
+    var fb = window.__fillBlank;
+    var fbStatus = fb
+        ? (fb.applied ? ('已盖住 ' + fb.blank + 'px 空白') : '无需覆盖（无空白）')
+        : '未运行（请先等待页面加载）';
+
     var rows = [
         ['视口高度 (window.innerHeight)', window.innerHeight + 'px'],
         ['main-layout 高度', (mainEl ? mainEl.offsetHeight : '?') + 'px'],
@@ -73,6 +79,11 @@ window.showDiag = function() {
         ['网格理论高度 (cellH×48+header)', gridFromConfig + 'px'],
         ['底部空白 (容器−实际渲染高度)', gap + 'px'],
         ['DayPilot config.height', dpHeight],
+        ['── 底部面板覆盖状态 ──', fbStatus],
+        ['FillBlank 容器高度', fb ? fb.calH + 'px' : '?'],
+        ['FillBlank DP渲染高度', fb ? fb.dpH + 'px' : '?'],
+        ['FillBlank 计算空白', fb ? fb.blank + 'px' : '?'],
+        ['FillBlank 面板高度', fb ? fb.panelH + 'px' : '?'],
         ['window.dp 状态', dp ? '✅ 已设置' : '❌ 未设置'],
     ];
 
