@@ -17,3 +17,4 @@ rubedo.db
 rubedo.db-wal
 rubedo.db-shm
 data_backup_*/
+data/migrate.log

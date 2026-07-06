@@ -1,16 +1,26 @@
 """
 Rubedo · 凝华 — 工具函数模块
 包含：路径定义、常量、通用工具函数
+
+v0.4 T3：数据读写改走 modules.shared.store（SQLite DAL），见 docs/ARCHITECTURE.md ADR-001。
 """
 
 import calendar
 import json
+import logging
 import unicodedata
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from filelock import FileLock  # 添加文件锁（防止并发读写数据损坏）
+from modules.shared import store
+from modules.shared.logging_cfg import get_logger
+
+log = get_logger("rubedo.utils")
+
+# 数据库路径：与 migrate.py / rollback.py 保持一致（rubedo 根目录）
+DB_PATH = Path(__file__).parent / "rubedo.db"
+store.init_store(DB_PATH)
 
 # ====== Paths ======
 BASE_DIR  = Path(__file__).parent
@@ -32,42 +42,32 @@ EXEC_MODES  = ["auto", "manual"]
 STATUSES   = ["pending", "done", "skipped"]
 
 # ====== Schedules (重复事件模板) ======
+# 注意：以下常量保留供 api.py 兼容导入；数据实际已迁到 SQLite（store）。
 SCHEDULES_FILE = DATA_DIR / "schedules.json"
 OCCURRENCE_OVERRIDES_FILE = DATA_DIR / "occurrence_overrides.json"
 
-# ====== Schedules I/O ======
-def _lock_for(path: Path) -> FileLock:
-    """Return a FileLock for the given path."""
-    return FileLock(str(path) + ".lock", timeout=5)
-
+# ====== Schedules I/O (v0.4 T3: 改走 SQLite DAL) ======
 def read_schedules() -> list[dict]:
-    """Read all schedule templates."""
-    if not SCHEDULES_FILE.exists():
-        return []
+    """Read all schedule templates (from SQLite)."""
     try:
-        with _lock_for(SCHEDULES_FILE):
-            data = json.loads(SCHEDULES_FILE.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                return data
-            return []
-    except (json.JSONDecodeError, OSError) as e:
-        print(f"[WARN] read_schedules: {e}")
+        return store.read_schedules()
+    except Exception as e:
+        log.warning(f"read_schedules: {e}")
         return []
 
 def write_schedules(schedules: list[dict]) -> None:
-    """Write schedule templates."""
-    with _lock_for(SCHEDULES_FILE):
-        SCHEDULES_FILE.write_text(json.dumps(schedules, ensure_ascii=False, indent=2), encoding="utf-8")
+    """Write schedule templates (to SQLite)."""
+    try:
+        store.write_schedules(schedules)
+    except Exception as e:
+        log.error(f"write_schedules failed: {e}")
 
 def read_occurrence_overrides() -> dict:
-    """Read all occurrence overrides."""
-    if not OCCURRENCE_OVERRIDES_FILE.exists():
-        return {}
+    """Read all occurrence overrides (from SQLite)."""
     try:
-        with _lock_for(OCCURRENCE_OVERRIDES_FILE):
-            return json.loads(OCCURRENCE_OVERRIDES_FILE.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as e:
-        print(f"[WARN] read_occurrence_overrides: {e}")
+        return store.read_occurrence_overrides()
+    except Exception as e:
+        log.warning(f"read_occurrence_overrides: {e}")
         return {}
 
 def write_occurrence_override(
@@ -79,100 +79,63 @@ def write_occurrence_override(
     end: str = None,
     deleted: bool = None
 ) -> None:
-    """Write an override for a recurring event occurrence."""
-    with _lock_for(OCCURRENCE_OVERRIDES_FILE):
-        # 直接读文件，不调用 read_occurrence_overrides()（避免死锁）
-        if OCCURRENCE_OVERRIDES_FILE.exists():
-            try:
-                all_overrides = json.loads(OCCURRENCE_OVERRIDES_FILE.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                all_overrides = {}
-        else:
-            all_overrides = {}
-        
-        overrides = all_overrides.get(date_str, {})
-        override = overrides.get(event_id, {})
-        if status is not None:
-            override["status"] = status
-        if locked is not None:
-            override["locked"] = locked
-        if start is not None:
-            override["start"] = start
-        if end is not None:
-            override["end"] = end
-        if deleted is not None:
-            override["deleted"] = deleted
-        overrides[event_id] = override
-        all_overrides[date_str] = overrides
-        OCCURRENCE_OVERRIDES_FILE.write_text(
-            json.dumps(all_overrides, ensure_ascii=False, indent=2), encoding="utf-8"
+    """Write an override for a recurring event occurrence (to SQLite)."""
+    try:
+        store.write_occurrence_override(
+            date_str, event_id,
+            status=status, locked=locked, start=start, end=end, deleted=deleted
         )
+    except Exception as e:
+        log.error(f"write_occurrence_override failed: {e}")
 
-# ====== Events I/O ======
+# ====== Events I/O (v0.4 T3: 改走 SQLite DAL) ======
+# daily_file 保留（路径约定参考），但读写已走 store。
 def daily_file(day: date) -> Path:
-    """Return path for a day's event file."""
+    """Return path for a day's event file (legacy path reference)."""
     return DATA_DIR / f"{day.isoformat()}.json"
 
 def read_day(day: date) -> list[dict]:
-    """Read events for a specific day."""
-    f = daily_file(day)
-    if not f.exists():
-        return []
+    """Read events for a specific day (from SQLite)."""
     try:
-        # 加读锁（实际上 filelock 只支持排他锁，所以这里也加排他锁）
-        with _lock_for(f):
-            return json.loads(f.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as e:
-        print(f"[WARN] read_day: {e}")
+        return store.read_day(day)
+    except Exception as e:
+        log.warning(f"read_day {day}: {e}")
         return []
 
 def write_day(day: date, events: list[dict]) -> None:
-    """Write events for a specific day."""
-    f = daily_file(day)
-    with _lock_for(f):
-        f.write_text(json.dumps(events, ensure_ascii=False, indent=2), encoding="utf-8")
+    """Write events for a specific day (to SQLite)."""
+    try:
+        store.write_day(day, events)
+    except Exception as e:
+        log.error(f"write_day {day} failed: {e}")
 
-# ====== Timelog I/O ======
+# ====== Timelog I/O (v0.4 T3: 改走 SQLite DAL) ======
 def timelog_file(day: date) -> Path:
-    """Return path for a day's timelog file."""
+    """Return path for a day's timelog file (legacy path reference)."""
     return TIMELOG_DIR / f"{day.isoformat()}.json"
 
 def read_timelog(day: date) -> list[dict]:
-    """Read timelog entries for a specific day."""
-    f = timelog_file(day)
-    if not f.exists():
-        return []
+    """Read timelog entries for a specific day (from SQLite)."""
     try:
-        with _lock_for(f):
-            return json.loads(f.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as e:
-        print(f"[WARN] read_timelog: {e}")
+        return store.read_timelog(day)
+    except Exception as e:
+        log.warning(f"read_timelog {day}: {e}")
         return []
 
 def write_timelog_entry(entry: dict) -> None:
-    """Append a timelog entry to today's file."""
-    today = date.today()
-    f = timelog_file(today)
-    with _lock_for(f):
-        # 直接读文件，不调用 read_timelog()（避免死锁）
-        if f.exists():
-            try:
-                entries = json.loads(f.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                entries = []
-        else:
-            entries = []
-        entries.append(entry)
-        f.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+    """Append a timelog entry (to SQLite)."""
+    try:
+        store.write_timelog_entry(entry)
+    except Exception as e:
+        log.error(f"write_timelog_entry failed: {e}")
 
 def all_timelog_in_range(start: date, end: date) -> list[dict]:
-    """Read all timelog entries in a date range."""
-    result = []
-    current = start
-    while current <= end:
-        result.extend(read_timelog(current))
-        current += timedelta(days=1)
-    return result
+    """Read all timelog entries in a date range (from SQLite)."""
+    try:
+        return store.all_timelog_in_range(start, end)
+    except Exception as e:
+        log.warning(f"all_timelog_in_range {start}~{end}: {e}")
+        return []
 
 # ====== Utility Functions ======
 def strip_icon(text: str) -> str:
@@ -233,24 +196,21 @@ def get_special_days(year: int) -> dict:
                     "type": "holiday"
                 })
     
-    # Custom holidays
-    custom_file = DATA_DIR / "custom_holidays.json"
-    if custom_file.exists():
-        try:
-            with open(custom_file, "r", encoding="utf-8") as f:
-                custom_holidays = json.load(f)
-            for h in custom_holidays:
-                h_date_str = h.get("date", "")
-                if h_date_str:
-                    result["custom_holidays"].append({
-                        "name": h.get("name", "自定义节假日"),
-                        "date": h_date_str,
-                        "type": "custom_holiday"
-                    })
-        except (json.JSONDecodeError, OSError) as e:
-            print(f"[WARN] Failed to read custom holidays: {e}")
-            pass
-    
+    # Custom holidays (v0.4 T3: 改走 SQLite DAL)
+    try:
+        custom_holidays = store.read_custom_holidays()
+    except Exception as e:
+        log.warning(f"read custom holidays: {e}")
+        custom_holidays = []
+    for h in custom_holidays:
+        h_date_str = h.get("date", "")
+        if h_date_str:
+            result["custom_holidays"].append({
+                "name": h.get("name", "自定义节假日"),
+                "date": h_date_str,
+                "type": "custom_holiday"
+            })
+
     return result
 
 def all_events_in_range(start: date, end: date) -> list[dict]:
@@ -264,14 +224,52 @@ def all_events_in_range(start: date, end: date) -> list[dict]:
 
 
 def load_sop(sop_id: str) -> Optional[dict]:
-    """Load a SOP definition from data/sops/ directory."""
-    sop_file = SOPS_DIR / f"{sop_id}.json"
-    if not sop_file.exists():
-        return None
+    """Load a SOP definition (from SQLite)."""
     try:
-        return json.loads(sop_file.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        return store.load_sop(sop_id)
+    except Exception as e:
+        log.warning(f"load_sop {sop_id}: {e}")
         return None
+
+
+# ====== Custom Holidays (v0.4 T3: 包装 DAL，供 api/holidays 复用) ======
+def read_custom_holidays() -> list:
+    """Read custom holidays (from SQLite)."""
+    try:
+        return store.read_custom_holidays()
+    except Exception as e:
+        log.warning(f"read_custom_holidays: {e}")
+        return []
+
+
+def write_custom_holidays(items: list) -> None:
+    """Write custom holidays (to SQLite)."""
+    try:
+        store.write_custom_holidays(items)
+    except Exception as e:
+        log.error(f"write_custom_holidays failed: {e}")
+
+
+# ====== Event lookup helper (v0.4 T3: 供 api_update_sop_step 在 SQLite 中定位/写回事件) ======
+def find_event_by_id(event_id: str):
+    """在 SQLite 中按 id 查找事件，返回 (day: date, event: dict) 或 (None, None)。"""
+    for day_str in store.all_event_days():
+        try:
+            d = date.fromisoformat(day_str)
+        except ValueError:
+            continue
+        for ev in store.read_day(d):
+            if ev.get("id") == event_id:
+                return d, ev
+    return None, None
+
+
+def save_event_day(day: date, events: list[dict]) -> None:
+    """写回某天的全部事件（to SQLite）。"""
+    try:
+        store.write_day(day, events)
+    except Exception as e:
+        log.error(f"save_event_day {day} failed: {e}")
 
 
 def calc_hourly_rate(entries: list[dict], events: list[dict]) -> dict:

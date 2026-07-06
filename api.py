@@ -21,7 +21,9 @@ from utils import (
     write_occurrence_override, write_timelog_entry,
     all_timelog_in_range, all_events_in_range,
     calc_hourly_rate, expand_recurring_schedules, expand_preheat_schedules,
-    get_special_days, strip_icon, DATA_DIR, SCHEDULES_FILE, OCCURRENCE_OVERRIDES_FILE
+    get_special_days, strip_icon, DATA_DIR, SCHEDULES_FILE, OCCURRENCE_OVERRIDES_FILE,
+    read_custom_holidays, write_custom_holidays, load_sop,
+    find_event_by_id, save_event_day
 )
 from holidays import (
     fetch_holidays, get_all_festivals_for_year, generate_overlay_events,
@@ -385,26 +387,17 @@ async def api_cell_backgrounds(request: Request):
                     add(d.isoformat(), "sem", f"\U0001F4DA {name}")
                 d += timedelta(days=1)
 
-        # 5. 自定义重要日子
-        custom_file = DATA_DIR / "custom_holidays.json"
-        if custom_file.exists():
+        # 5. 自定义重要日子 (v0.4 T3: 改走 SQLite DAL)
+        for h in read_custom_holidays():
+            h_date_str = h.get("date", "")
+            h_name = h.get("name", "自定义")
+            if not h_date_str:
+                continue
             try:
-                with open(custom_file, "r", encoding="utf-8") as f:
-                    custom_holidays = json.load(f)
-                for h in custom_holidays:
-                    h_date_str = h.get("date", "")
-                    h_name = h.get("name", "自定义")
-                    if not h_date_str:
-                        continue
-                    try:
-                        h_date = date.fromisoformat(h_date_str)
-                        if start <= h_date <= end:
-                            add(h_date_str, "custom", f"\U0001F4C5 {h_name}")
-                    except (ValueError, TypeError):
-                        pass
-            except Exception as e:
-                print(f"[ERROR] api_cell_backgrounds: {e}")
-                import traceback; traceback.print_exc()
+                h_date = date.fromisoformat(h_date_str)
+                if start <= h_date <= end:
+                    add(h_date_str, "custom", f"\U0001F4C5 {h_name}")
+            except (ValueError, TypeError):
                 pass
 
         dates = {}
@@ -513,18 +506,12 @@ async def api_timelog_report(request: Request):
         return JSONResponse({"ok": False, "error": str(e)})
 
 
-# ====== Custom Holidays API ======
-
-CUSTOM_HOLIDAYS_FILE = DATA_DIR / "custom_holidays.json"
+# ====== Custom Holidays API (v0.4 T3: 改走 SQLite DAL) ======
 
 async def api_list_custom_holidays(request: Request):
     """List all custom holidays."""
     try:
-        if CUSTOM_HOLIDAYS_FILE.exists():
-            with open(CUSTOM_HOLIDAYS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return JSONResponse({"ok": True, "holidays": data})
-        return JSONResponse({"ok": True, "holidays": []})
+        return JSONResponse({"ok": True, "holidays": read_custom_holidays()})
     except Exception as e:
         print(f"[ERROR] api_list_custom_holidays: {e}")
         import traceback; traceback.print_exc()
@@ -551,13 +538,9 @@ async def api_add_custom_holiday(request: Request):
             dt.strptime(date_str, "%Y-%m-%d")
         except ValueError:
             return JSONResponse({"ok": False, "error": "日期格式错误，应为 YYYY-MM-DD"})
-        holidays = []
-        if CUSTOM_HOLIDAYS_FILE.exists():
-            with open(CUSTOM_HOLIDAYS_FILE, "r", encoding="utf-8") as f:
-                holidays = json.load(f)
+        holidays = read_custom_holidays()
         holidays.append({"name": name, "date": date_str})
-        with open(CUSTOM_HOLIDAYS_FILE, "w", encoding="utf-8") as f:
-            json.dump(holidays, f, ensure_ascii=False, indent=2)
+        write_custom_holidays(holidays)
         return JSONResponse({"ok": True})
     except Exception as e:
         print(f"[ERROR] api_add_custom_holiday: {e}")
@@ -573,13 +556,9 @@ async def api_delete_custom_holiday(request: Request):
         date_str = data.get("date", "")
         if not name or not date_str:
             return JSONResponse({"ok": False, "error": "参数不完整"})
-        holidays = []
-        if CUSTOM_HOLIDAYS_FILE.exists():
-            with open(CUSTOM_HOLIDAYS_FILE, "r", encoding="utf-8") as f:
-                holidays = json.load(f)
+        holidays = read_custom_holidays()
         holidays = [h for h in holidays if not (h["name"] == name and h["date"] == date_str)]
-        with open(CUSTOM_HOLIDAYS_FILE, "w", encoding="utf-8") as f:
-            json.dump(holidays, f, ensure_ascii=False, indent=2)
+        write_custom_holidays(holidays)
         return JSONResponse({"ok": True})
     except Exception as e:
         print(f"[ERROR] api_delete_custom_holiday: {e}")
@@ -739,17 +718,12 @@ async def api_list_special_days(request: Request):
 # ====== SOP API Routes ======
 
 async def api_get_sop(request: Request):
-    """Get SOP JSON by sop_id."""
+    """Get SOP JSON by sop_id (from SQLite)."""
     try:
         sop_id = request.path_params["sop_id"]
-        sop_file = DATA_DIR / "sop" / f"{sop_id}.json"
-        
-        if not sop_file.exists():
+        sop_data = load_sop(sop_id)
+        if sop_data is None:
             return JSONResponse({"ok": False, "error": f"SOP {sop_id} 不存在"})
-        
-        with open(sop_file, "r", encoding="utf-8") as f:
-            sop_data = json.load(f)
-        
         return JSONResponse({"ok": True, "sop": sop_data})
     except Exception as e:
         print(f"[ERROR] api_get_sop: {e}")
@@ -769,28 +743,17 @@ async def api_update_sop_step(request: Request):
         if new_step is None:
             return JSONResponse({"ok": False, "error": "缺少 step 参数"})
         
-        # 找到事件并更新 sop_current_step
-        # 事件按天存储，需要遍历所有日期文件
+        # 找到事件并更新 sop_current_step (v0.4 T3: 改走 SQLite DAL)
         found = False
-        for day_file in DATA_DIR.glob("*.json"):
-            if day_file.name == "settings.json" or day_file.name.startswith("sop_"):
-                continue
-            try:
-                with open(day_file, "r", encoding="utf-8") as f:
-                    events = json.load(f)
-                
-                for ev in events:
-                    if ev.get("id") == event_id:
-                        ev["sop_current_step"] = new_step
-                        found = True
-                        break
-                
-                if found:
-                    with open(day_file, "w", encoding="utf-8") as f:
-                        json.dump(events, f, ensure_ascii=False, indent=2)
+        day, events = find_event_by_id(event_id)
+        if day is not None:
+            for ev in events:
+                if ev.get("id") == event_id:
+                    ev["sop_current_step"] = new_step
+                    found = True
                     break
-            except Exception:
-                continue
+            if found:
+                save_event_day(day, events)
         
         if not found:
             return JSONResponse({"ok": False, "error": f"事件 {event_id} 未找到"})

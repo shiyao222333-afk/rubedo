@@ -127,6 +127,13 @@ def write_day(day: date, events: list) -> None:
             )
 
 
+def all_event_days() -> list:
+    """返回 events 表中所有不同的 day（ISO 字符串），升序。供按 id 定位事件等场景。"""
+    with _connect() as conn:
+        rows = conn.execute("SELECT DISTINCT day FROM events ORDER BY day").fetchall()
+        return [r["day"] for r in rows]
+
+
 # ====== Timelog ======
 def read_timelog(day: date) -> list:
     with _connect() as conn:

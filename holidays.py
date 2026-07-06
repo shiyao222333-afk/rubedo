@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from utils import DATA_DIR, read_schedules
+from utils import DATA_DIR, read_schedules, read_custom_holidays
 
 # ====== Holiday Files ======
 HOLIDAYS_DIR = DATA_DIR / "holidays"
@@ -420,13 +420,10 @@ def generate_overlay_events(start: date, end: date) -> list[dict]:
         except ValueError:
             pass
 
-    # 5. 自定义节假日 — 从 data/custom_holidays.json 读取
+    # 5. 自定义节假日 — 从 SQLite 读取 (v0.4 T3)
     try:
-        custom_file = DATA_DIR / "custom_holidays.json"
-        if custom_file.exists():
-            with open(custom_file, "r", encoding="utf-8") as f:
-                custom_holidays = json.load(f)
-            for h in custom_holidays:
+        custom_holidays = read_custom_holidays()
+        for h in custom_holidays:
                 h_date_str = h.get("date", "")
                 h_name = h.get("name", "自定义节假日")
                 if not h_date_str:
