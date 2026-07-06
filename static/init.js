@@ -1836,33 +1836,37 @@
 
         // 底部面板填满空白——不改 DayPilot，只调整底部面板高度
         // （用户批准方案：日历高度不变，底部面板盖住日历内部的空白）
+        // DayPilot 用内联 height:580px !important 把日历钉死在 580px（只在 init 算一次，无视视口变化），
+        // 所以 #calendar 容器高≈580，日历底边缘固定在 580px；底部面板底锚定在视口底部。
+        // 真正的可见空白 = 面板顶部(基准高度) − 日历底边缘，而不是 容器高−渲染高（后者被钉成≈0，测不到空白）。
+        var BASE_PANEL = 280;
         function fillBlank() {
             var cal = document.getElementById('calendar');
             var panel = document.getElementById('detail-panel');
             if (!cal || !panel) return;
 
-            // DayPilot 渲染的实际高度（读取 DOM，不修改 DayPilot）
-            // DayPilot Lite 结构：#calendar > div（根容器，含表头 + 网格）
-            var inner = cal.firstElementChild;
-            var dpH = inner ? inner.offsetHeight : 0;
-            if (dpH < 50) dpH = cal.scrollHeight; // 兜底：用溢出高度
-            if (dpH < 50) return;                 // DayPilot 还没渲染好，跳过
+            var rect = cal.getBoundingClientRect();
+            var dpH = rect.height;                 // 日历实际渲染高度（DayPilot 钉死的值）
+            if (dpH < 50) return;                  // DayPilot 还没渲染好，跳过
 
-            var calH = cal.offsetHeight;
-            var blank = calH - dpH;
+            var calBottom = rect.bottom;                       // 日历底边缘（视口坐标 y）
+            var panelTop  = window.innerHeight - BASE_PANEL;   // 底部面板顶部（用基准高度，避免反馈回路）
+            var blank = panelTop - calBottom;                 // 真正的可见空白
 
             if (blank > 5) {
-                // 底部面板用 bottom:0 锚定，加高即向上延伸，盖住日历内部的空白
-                panel.style.height = (280 + blank) + 'px';
+                // 底部面板用 bottom:0 锚定，加高即向上延伸，盖住日历底边缘到面板顶之间的空白
+                panel.style.height = (BASE_PANEL + blank) + 'px';
             } else {
-                panel.style.height = '280px';
+                panel.style.height = BASE_PANEL + 'px';
             }
             // 诊断数据写入全局，供 🔧 诊断工具读取（不依赖控制台）
             window.__fillBlank = {
-                calH:   calH,
-                dpH:    dpH,
-                blank:  blank,
-                panelH: parseInt(panel.style.height) || 280,
+                calH:   Math.round(rect.height),
+                dpH:    Math.round(dpH),
+                calBottom: Math.round(calBottom),
+                panelTop:  Math.round(panelTop),
+                blank:  Math.round(blank),
+                panelH: parseInt(panel.style.height) || BASE_PANEL,
                 applied: blank > 5,
                 ts:     Date.now()
             };

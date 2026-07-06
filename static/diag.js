@@ -51,13 +51,15 @@ window.showDiag = function() {
         }
     }
 
-    // 计算底部空白（用实际渲染高度）
-    var gap = '?';
-    if (actualGridH !== '?' && containerH) {
-        gap = containerH - actualGridH;
-    } else if (gridFromConfig !== '?' && containerH) {
-        gap = containerH - gridFromConfig;
+    // 真正的「可见空白」= 面板顶部(基准高度280) − 日历底边缘（视口坐标）
+    // 注意：#calendar 容器高被 DayPilot 内联 height 钉死≈渲染高，所以 容器−渲染≈0，测不到真实空白
+    var panelTopReal = window.innerHeight - 280;
+    var calBottomReal = '?';
+    if (cal) {
+        var cr = cal.getBoundingClientRect();
+        calBottomReal = cr.bottom;
     }
+    var gap = (calBottomReal !== '?' ) ? (panelTopReal - calBottomReal) : '?';
 
     var mainEl = document.querySelector('.main-layout');
     var panelEl = document.getElementById('detail-panel');
@@ -77,11 +79,11 @@ window.showDiag = function() {
         ['DayPilot cellHeight', cellH + 'px'],
         ['DayPilot headerHeight', headerH + 'px'],
         ['网格理论高度 (cellH×48+header)', gridFromConfig + 'px'],
-        ['底部空白 (容器−实际渲染高度)', gap + 'px'],
+        ['可见空白 (面板顶−日历底)', gap + 'px'],
         ['DayPilot config.height', dpHeight],
         ['── 底部面板覆盖状态 ──', fbStatus],
-        ['FillBlank 容器高度', fb ? fb.calH + 'px' : '?'],
-        ['FillBlank DP渲染高度', fb ? fb.dpH + 'px' : '?'],
+        ['FillBlank 日历底边缘', fb ? fb.calBottom + 'px' : '?'],
+        ['FillBlank 面板顶部', fb ? fb.panelTop + 'px' : '?'],
         ['FillBlank 计算空白', fb ? fb.blank + 'px' : '?'],
         ['FillBlank 面板高度', fb ? fb.panelH + 'px' : '?'],
         ['window.dp 状态', dp ? '✅ 已设置' : '❌ 未设置'],
