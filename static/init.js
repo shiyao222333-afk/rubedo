@@ -51,12 +51,10 @@
                 } else {
                     this.showContent('<div style="padding:20px;color:#888;">未知事件类型：' + event.kind + '</div>');
                 }
-                
                 // 底部面板显示后，重新计算 cellHeight（容器高度变了）
                 setTimeout(function() {
                     updateCellHeight();
                     console.log('[DayPilot] updateCellHeight() called after DetailPanel.show');
-                }, 100);
                 }, 100);
             },
 
