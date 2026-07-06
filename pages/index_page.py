@@ -27,32 +27,26 @@ def index():
             height: 100%;
             overflow: hidden;
         }
-        /* 全页 flexbox：导航栏 + 主布局 一起算高度 */
-        .page-layout {
-            display: flex;
-            flex-direction: column;
+        .main-layout {
+            position: relative;
             height: 100vh;
             overflow: hidden;
         }
-        .nav-bar {
-            flex: 0 0 auto;
-        }
-        .main-layout {
-            display: flex;
-            flex-direction: column;
-            flex: 1;
-            min-height: 0;
-            overflow: hidden;
-        }
         #calendar {
-            flex: 1;
-            min-height: 0;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 280px;
             overflow: hidden;
         }
         #detail-panel {
-            flex: 0 0 25vh;
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 280px;
             min-height: 120px;
-            max-height: 35vh;
             background: #16213e;
             border-top: 1px solid #0f3460;
             overflow: auto;
@@ -285,9 +279,6 @@ def index():
     # ---- 诊断工具（同步加载，确保函数一定可用）----
     ui.add_head_html('<script src="/static/diag.js"></script>')
 
-    # ---- Page layout（全页 flexbox）----
-    ui.html("""<div class="page-layout">""", sanitize=False)
-
     # ---- Navigation bar ----
     ui.html("""<div class="nav-bar">
         <span class="title">凝华 · Rubedo</span>
@@ -342,9 +333,6 @@ def index():
             </div>
         </div>
     </div>""", sanitize=False)
-
-    # ---- 关闭 .page-layout ----
-    ui.html("""</div>""", sanitize=False)
 
     # ---- DayPilot init ----
     ui.add_body_html(f'<script src="/static/init.js?v={int(time.time())}"></script>')
