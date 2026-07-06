@@ -33,15 +33,16 @@ def index():
             height: 100vh;
         }
         #calendar {
-            width: calc(100% - 32px);
+            width: calc(100% - 16px);
             flex: 1;
-            margin: 16px;
+            margin: 8px;
             min-height: 0;
         }
         #detail-panel {
             display: flex;
             flex-direction: column;
-            flex: 0 0 300px;
+            flex: 0 0 auto;
+            max-height: 35vh;
             background: #16213e;
             border-top: 1px solid #0f3460;
             overflow: hidden;
