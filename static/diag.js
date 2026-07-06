@@ -1,23 +1,41 @@
 // 诊断工具 - 同步加载，页面渲染前立即可用
+// 不依赖 window.dp，直接从 DOM 读取实际渲染高度
 window.showDiag = function() {
     var cal = document.getElementById('calendar');
     if (!cal) { alert('找不到 #calendar 元素'); return; }
 
-    // 读取 DayPilot 配置（如果存在）
-    var dp = window.dp;
-    var cellH = (dp && dp.config && dp.config.cellHeight) ? dp.config.cellHeight : '?';
-    var headerH = (dp && dp.config && dp.config.headerHeight) ? dp.config.headerHeight : '?';
-    var dpHeight = (dp && dp.config && dp.config.height) ? JSON.stringify(dp.config.height) : '?';
+    // 读取容器高度
+    var containerH = cal.offsetHeight;
 
-    // 计算网格高度
-    var gridH = '?';
-    if (cellH !== '?' && headerH !== '?') {
-        gridH = cellH * 48 + headerH;
+    // 读取 DayPilot 实际渲染的内部元素高度
+    var innerEl = cal.querySelector('.daypilot-calendar-inner')
+                || cal.querySelector('.dp-calendar')
+                || cal.querySelector('[class*="daypilot"]');
+    var actualGridH = innerEl ? innerEl.offsetHeight : '?';
+
+    // 读取 DayPilot 配置（如果可用）
+    var dp = window.dp;
+    var cellH = '?';
+    var headerH = '?';
+    var dpHeight = '?';
+    var gridFromConfig = '?';
+
+    if (dp && dp.config) {
+        cellH = dp.config.cellHeight || '?';
+        headerH = dp.config.headerHeight || '?';
+        dpHeight = JSON.stringify(dp.config.height);
+        if (cellH !== '?' && headerH !== '?') {
+            gridFromConfig = cellH * 48 + headerH;
+        }
     }
 
-    // 读取 DOM 高度
-    var containerH = cal.offsetHeight;
-    var gap = (gridH !== '?' && containerH) ? containerH - gridH : '?';
+    // 计算底部空白（用实际渲染高度）
+    var gap = '?';
+    if (actualGridH !== '?' && containerH) {
+        gap = containerH - actualGridH;
+    } else if (gridFromConfig !== '?' && containerH) {
+        gap = containerH - gridFromConfig;
+    }
 
     var mainEl = document.querySelector('.main-layout');
     var panelEl = document.getElementById('detail-panel');
@@ -27,24 +45,41 @@ window.showDiag = function() {
         ['main-layout 高度', (mainEl ? mainEl.offsetHeight : '?') + 'px'],
         ['#calendar 容器高度', containerH + 'px'],
         ['#detail-panel 高度', (panelEl ? panelEl.offsetHeight : '?') + 'px'],
+        ['DayPilot 实际渲染高度', actualGridH + 'px'],
         ['DayPilot cellHeight', cellH + 'px'],
         ['DayPilot headerHeight', headerH + 'px'],
-        ['网格理论高度 (cellH×48+header)', gridH + 'px'],
-        ['底部空白 (容器−网格)', gap + 'px'],
+        ['网格理论高度 (cellH×48+header)', gridFromConfig + 'px'],
+        ['底部空白 (容器−实际渲染高度)', gap + 'px'],
         ['DayPilot config.height', dpHeight],
+        ['window.dp 状态', dp ? '✅ 已设置' : '❌ 未设置'],
     ];
 
-    var html = '<table><tr><th>项目</th><th>值</th></tr>';
+    var html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+    html += '<tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid #0f3460;">项目</th>';
+    html += '<th style="text-align:left;padding:4px 8px;border-bottom:1px solid #0f3460;">值</th></tr>';
+
     rows.forEach(function(r) {
         var val = parseInt(r[1]);
         var cls = '';
-        if (r[0].indexOf('空白') >= 0 && val !== '?') {
-            cls = val > 10 ? 'bad' : val < -10 ? 'warn' : 'ok';
+        var style = '';
+        if (r[0].indexOf('空白') >= 0 && val !== '?' && !isNaN(val)) {
+            if (val > 10) { cls = 'bad'; style = 'color:#e94560;font-weight:bold;'; }
+            else if (val < -10) { cls = 'warn'; style = 'color:#ffa500;font-weight:bold;'; }
+            else { cls = 'ok'; style = 'color:#4CAF50;'; }
         }
-        html += '<tr><td>' + r[0] + '</td><td class="' + cls + '">' + r[1] + '</td></tr>';
+        if (r[0].indexOf('dp 状态') >= 0) {
+            style = r[1].indexOf('✅') >= 0 ? 'color:#4CAF50;' : 'color:#e94560;';
+        }
+        html += '<tr>';
+        html += '<td style="padding:4px 8px;border-bottom:1px solid #16213e;">' + r[0] + '</td>';
+        html += '<td style="padding:4px 8px;border-bottom:1px solid #16213e;' + style + '">' + r[1] + '</td>';
+        html += '</tr>';
     });
     html += '</table>';
-    html += '<p style="margin-top:12px;color:#aaa;font-size:12px;">💡 底部空白>10px = 网格不够高，需要增大cellHeight<br>底部空白<-10px = 网格太高，需要减小cellHeight</p>';
+    html += '<p style="margin-top:12px;color:#aaa;font-size:12px;">';
+    html += '💡 底部空白 > 10px → 网格高度 < 容器高度，需要增大 cellHeight<br>';
+    html += '底部空白 < -10px → 网格高度 > 容器高度，需要减小 cellHeight';
+    html += '</p>';
 
     var body = document.getElementById('diag-body');
     if (body) body.innerHTML = html;
@@ -60,7 +95,6 @@ window.copyDiag = function() {
         navigator.clipboard.writeText(text).then(function() {
             alert('✅ 已复制到剪贴板');
         }).catch(function() {
-            // 降级方案
             var ta = document.createElement('textarea');
             ta.value = text;
             document.body.appendChild(ta);

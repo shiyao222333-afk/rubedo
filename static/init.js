@@ -1831,9 +1831,11 @@
             });
         }
 
-        dp.init();
-        window.dp = dp;  // 暴露到全局，供 DetailPanel / resize 调用
+        // 先暴露到全局（在 init() 之前），确保诊断工具一定能读到
+        window.dp = dp;
         window.updateCalendar = updateCalendar;  // 暴露供调试
+
+        dp.init();
 
         // ---- 容器高度变化后通知 DayPilot 重绘 ----
         function updateCalendar() {
