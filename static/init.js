@@ -278,20 +278,13 @@
             });
         };
 
-        // ---- 动态计算 cellHeight，让网格刚好填满容器 ----
-            var cal = document.getElementById('calendar');
-            var containerH = cal ? cal.offsetHeight : 600;
-            var headerH = 40;
-            var calcCellH = Math.max(15, Math.floor((containerH - headerH) / 48));
-            console.log('[DayPilot] 容器高度:', containerH, '计算 cellHeight:', calcCellH);
-
         // ---- DayPilot 日历初始化 ----
             const dp = new DayPilot.Calendar("calendar", {
             viewType:      "Week",
             startDate:     currentStart.format("YYYY-MM-DD"),
             weekStarts:    1,
             cellDuration:  30,
-            cellHeight:    calcCellH,
+            cellHeight:    30,
             height:        "auto",
             dayBeginHour: 0,
             dayEndHour:   24,
@@ -1840,21 +1833,6 @@
         window.dp = dp;
 
         dp.init();
-
-        // 窗口 resize 时重算 cellHeight
-        window.addEventListener('resize', function() {
-            if (!window.dp) return;
-            var cal = document.getElementById('calendar');
-            var containerH = cal ? cal.offsetHeight : 600;
-            if (containerH < 100) return; // 布局还没稳定
-            var headerH = 40;
-            var newCellH = Math.max(10, Math.floor((containerH - headerH) / 48));
-            if (newCellH !== window.dp.config.cellHeight) {
-                window.dp.config.cellHeight = newCellH;
-                window.dp.update();
-                console.log('[DayPilot] Resize: cellHeight', window.dp.config.cellHeight, '->', newCellH);
-            }
-        });
 
         loadEvents();
         updateWeekRange();
