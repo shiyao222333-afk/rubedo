@@ -34,10 +34,9 @@ def index():
         }
         #calendar {
             width: calc(100% - 32px);
-            height: calc(100vh - 300px - 40px);
+            flex: 1;
             margin: 16px;
             min-height: 0;
-            overflow: auto;
         }
         #detail-panel {
             display: flex;

@@ -51,10 +51,10 @@
                 } else {
                     this.showContent('<div style="padding:20px;color:#888;">未知事件类型：' + event.kind + '</div>');
                 }
-                // 底部面板显示后，重新计算 cellHeight（容器高度变了）
+                // 底部面板显示后，通知 DayPilot 重绘（容器高度变了）
                 setTimeout(function() {
-                    updateCellHeight();
-                    console.log('[DayPilot] updateCellHeight() called after DetailPanel.show');
+                    updateCalendar();
+                    console.log('[DayPilot] updateCalendar() called after DetailPanel.show');
                 }, 100);
             },
 
@@ -278,30 +278,21 @@
             });
         };
 
-        // ---- 动态计算 cellHeight，让网格正好填满容器（消除底部空白）----
-        function calcCellHeight() {
-            var calendarEl = document.getElementById('calendar');
-            if (!calendarEl) return 30;
-            // 可用高度 = 容器高度 - headerHeight(40px) - 上下边框/内边距估算(4px)
-            var avail = calendarEl.offsetHeight - 44;
-            var cellsPerDay = (24 * 60) / 30; // 48 格/天
-            var h = Math.floor(avail / cellsPerDay);
-            return Math.max(h, 15); // 最小 15px，防止过小
-        }
-
-        var dynamicCellHeight = calcCellHeight();
-        console.log('[DayPilot] dynamicCellHeight =', dynamicCellHeight);
+        // ---- DayPilot 日历初始化 ----
+        // height: "auto" → DayPilot 自动填满 #calendar 容器
+        // cellHeight: 30 → 每格 30px（可手动改，dp.update() 后生效）
 
         const dp = new DayPilot.Calendar("calendar", {
             viewType:      "Week",
             startDate:     currentStart.format("YYYY-MM-DD"),
             weekStarts:    1,
             cellDuration:  30,
-            cellHeight:    dynamicCellHeight,
+            cellHeight:    30,
             dayBeginHour: 0,
             dayEndHour:   24,
             headerHeight: 40,
             locale:        "zh-cn",
+            height:        "auto",
             timeRangeSelectedHandling: "JavaScript",
 
             onTimeRangeSelected: function(args) {
@@ -1842,23 +1833,21 @@
 
         dp.init();
         window.dp = dp;  // 暴露到全局，供 DetailPanel / resize 调用
-        window.updateCellHeight = updateCellHeight;  // 暴露供调试
+        window.updateCalendar = updateCalendar;  // 暴露供调试
 
-        // ---- 重新计算 cellHeight 并更新 DayPilot ----
-        function updateCellHeight() {
-            var newH = calcCellHeight();
-            if (newH !== dp.config.cellHeight) {
-                dp.config.cellHeight = newH;
-                dp.update();
-                console.log('[DayPilot] cellHeight updated:', dp.config.cellHeight);
+        // ---- 容器高度变化后通知 DayPilot 重绘 ----
+        function updateCalendar() {
+            if (window.dp) {
+                window.dp.update();
+                console.log('[DayPilot] update() called');
             }
         }
 
-        // 窗口 resize 时重新计算
+        // 窗口 resize 时重绘
         var _dpUpdateTimer = null;
         window.addEventListener('resize', function() {
             if (_dpUpdateTimer) clearTimeout(_dpUpdateTimer);
-            _dpUpdateTimer = setTimeout(updateCellHeight, 200);
+            _dpUpdateTimer = setTimeout(updateCalendar, 200);
         });
         
         loadEvents();
