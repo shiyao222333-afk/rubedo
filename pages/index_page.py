@@ -38,7 +38,6 @@ def index():
             left: 0;
             right: 0;
             bottom: 280px;
-            height: auto !important;
             overflow: hidden;
         }
         #detail-panel {
