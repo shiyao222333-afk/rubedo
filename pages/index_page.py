@@ -65,14 +65,31 @@ def index():
             display: flex;
             align-items: center;
             justify-content: center;
-            height: 100%;
-            color: #666;
+            flex: 1;
+            min-height: 0;
+            color: #9aa;
             font-size: 14px;
         }
+        /* ---- 底部常驻工具条（空闲时也不空，始终有可见操作按钮）---- */
+        #panel-toolbar {
+            display: flex; align-items: center; gap: 8px;
+            padding: 8px 12px;
+            background: #0f3460;
+            border-bottom: 1px solid #e94560;
+            flex-shrink: 0;
+        }
+        #panel-toolbar button {
+            background: #16213e; color: #e94560;
+            border: 1px solid #e94560; border-radius: 6px;
+            padding: 6px 14px; cursor: pointer; font-size: 13px;
+        }
+        #panel-toolbar button:hover { background: #e94560; color: #fff; }
+        #panel-toolbar .label { color: #aaa; font-size: 13px; margin-left: auto; }
         #sop-content {
             display: none;
             flex-direction: column;
-            height: 100%;
+            flex: 1;
+            min-height: 0;
         }
         #sop-content.show {
             display: flex;
@@ -159,7 +176,11 @@ def index():
             color: #888;
         }
         #detail-content {
+            display: none;
             padding: 20px;
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
         }
         .detail-header {
             display: flex;
@@ -300,6 +321,12 @@ def index():
     ui.html("""<div class="main-layout">
         <div id="calendar"></div>
         <div id="detail-panel">
+            <div id="panel-toolbar">
+                <button onclick="window.quickCreate()">➕ 新建</button>
+                <button onclick="navToday()">📅 今天</button>
+                <button onclick="loadEvents()">🔄 刷新</button>
+                <span class="label" id="panel-status">未选择事件</span>
+            </div>
             <div id="sop-empty">⚙️ 请点击日历事件加载 SOP</div>
             <div id="sop-content">
                 <div id="sop-header">

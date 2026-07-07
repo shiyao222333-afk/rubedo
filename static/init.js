@@ -104,8 +104,11 @@
             show: function(event) {
                 console.log('DetailPanel.show:', event.kind, event.text);
                 if (!this.container) this.init();
+                var st = document.getElementById('panel-status');
+                if (st) st.textContent = (event.text || '事件') + (event.kind ? ' · ' + event.kind : '');
                 this.container.classList.add('show');
                 document.getElementById('detail-loading').style.display = 'block';
+                document.getElementById('detail-content').style.display = 'none';
                 document.getElementById('detail-content').innerHTML = '';
 
                 var renderer = this.renderers[event.kind] || this.renderers['default'];
@@ -128,11 +131,15 @@
 
             showContent: function(html) {
                 document.getElementById('detail-loading').style.display = 'none';
-                document.getElementById('detail-content').innerHTML = html;
+                var dc = document.getElementById('detail-content');
+                dc.style.display = 'block';
+                dc.innerHTML = html;
             },
 
             hide: function() {
                 if (!this.container) this.init();
+                var st = document.getElementById('panel-status');
+                if (st) st.textContent = '未选择事件';
                 this.container.classList.remove('show');
             },
 
@@ -1897,6 +1904,16 @@
 
         // 先暴露到全局（在 init() 之前），确保诊断工具一定能读到
         window.dp = dp;
+
+        // 底部工具条「➕ 新建」按钮：打开创建弹窗，默认填本周一 09:00–10:00
+        window.quickCreate = function() {
+            var base = currentStart;
+            var start = base.hour(9).minute(0).second(0);
+            var end = base.hour(10).minute(0).second(0);
+            showCreateDialog(start.format("YYYY-MM-DDTHH:mm:ss"), end.format("YYYY-MM-DDTHH:mm:ss"));
+        };
+        // 暴露 loadEvents 到全局，供底部工具条「刷新」按钮 onclick 调用
+        window.loadEvents = loadEvents;
 
         // 让 .main-layout 高度 = 100vh − 导航栏高度，消除整体溢出视口的 bug
         // （根因：导航栏在 .main-layout 上方，main-layout 还写 height:100vh 就溢出 84px，
