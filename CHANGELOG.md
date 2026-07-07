@@ -14,6 +14,9 @@
 - **后端 API 支持更新时间**：`/api/events/update` 现在接受 `start` 和 `end` 字段
 - **utils.py 补回缺失函数**：`all_events_in_range()`, `load_sop()`, `calc_hourly_rate()`（上次重构时丢失，本次补回）
 
+### Fixed
+- **🔴 创建事件必失败（静默）**：`api_create_event` 校验时引用了 `KIND_COLORS` / `EXEC_MODES`，但二者未从 `utils` 导入 `api.py`，每次创建都抛 `NameError` 返回 `ok:False`（前端弹「创建失败」但易被忽略，表现像「点了没反应」）。已补 `from utils import (..., KIND_COLORS, EXEC_MODES)`。修复后经真实路由函数集成测试 + 全 mutation 接口冒烟测试通过
+
 ### Changed
 - **重构：拆分 app.py 减少 AI 点数消耗**：
   - `app.py` 从 ~1023 行精简到 ~90 行（薄入口）

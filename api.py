@@ -25,7 +25,8 @@ from utils import (
     calc_hourly_rate, expand_recurring_schedules, expand_preheat_schedules,
     get_special_days, strip_icon, DATA_DIR, SCHEDULES_FILE, OCCURRENCE_OVERRIDES_FILE,
     read_custom_holidays, write_custom_holidays, load_sop,
-    find_event_by_id, save_event_day
+    find_event_by_id, save_event_day,
+    KIND_COLORS, EXEC_MODES
 )
 from holidays import (
     fetch_holidays, get_all_festivals_for_year, generate_overlay_events,
