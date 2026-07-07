@@ -33,6 +33,22 @@ def init_store(db_path: Path) -> None:
     with _connect() as conn:
         conn.execute("PRAGMA journal_mode=WAL")
         _create_schema(conn)
+    # 限制3 fix: event_id 列迁移用独立连接，避免 ALTER 落在 schema 建表事务内
+    _migrate_event_id_column()
+
+
+def _migrate_event_id_column() -> None:
+    """为 events 加 event_id 列并回填旧数据，支持 O(1) 按 id 定位。幂等。"""
+    with _connect() as conn:
+        conn.commit()  # 结束任何隐式事务，确保 ALTER 不在事务中执行
+        try:
+            conn.execute("ALTER TABLE events ADD COLUMN event_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # 列已存在
+        conn.execute(
+            "UPDATE events SET event_id = json_extract(data, '$.id') WHERE event_id IS NULL"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_events_event_id ON events(event_id)")
 
 
 @contextmanager
@@ -126,8 +142,8 @@ def write_day(day: date, events: list) -> None:
         conn.execute("DELETE FROM events WHERE day=?", (d,))
         for i, ev in enumerate(events):
             conn.execute(
-                "INSERT INTO events (day, seq, data) VALUES (?,?,?)",
-                (d, i, json.dumps(ev, ensure_ascii=False)),
+                "INSERT INTO events (day, seq, event_id, data) VALUES (?,?,?,?)",
+                (d, i, ev.get("id"), json.dumps(ev, ensure_ascii=False)),
             )
 
 
@@ -136,6 +152,15 @@ def all_event_days() -> list:
     with _connect() as conn:
         rows = conn.execute("SELECT DISTINCT day FROM events ORDER BY day").fetchall()
         return [r["day"] for r in rows]
+
+
+def find_day_by_event_id(event_id: str):
+    """返回事件所在 day（ISO 字符串）或 None。走 event_id 索引，O(1)，替代全表天扫描。"""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT day FROM events WHERE event_id=? LIMIT 1", (event_id,)
+        ).fetchone()
+        return row["day"] if row else None
 
 
 # ====== Timelog ======
@@ -148,8 +173,17 @@ def read_timelog(day: date) -> list:
 
 
 def write_timelog_entry(entry: dict) -> None:
-    today = date.today()
-    d = today.isoformat()
+    # 限制2 fix: 优先用 entry 自带日期（start_time 或 day），否则回退今天
+    # —— 避免跨午夜记一笔时被写错天
+    day_str = entry.get("day") or (entry.get("start_time") or "")[:10] or None
+    if day_str:
+        try:
+            d = date.fromisoformat(day_str)
+        except ValueError:
+            d = date.today()
+    else:
+        d = date.today()
+    d = d.isoformat()
     with _connect() as conn:
         cur = conn.execute(
             "SELECT COALESCE(MAX(seq), -1) + 1 AS n FROM timelog WHERE day=?", (d,)
@@ -232,6 +266,7 @@ def write_occurrence_override(
     start=None,
     end=None,
     deleted=None,
+    sop_current_step=None,
 ) -> None:
     with _connect() as conn:
         row = conn.execute(
@@ -249,6 +284,8 @@ def write_occurrence_override(
             override["end"] = end
         if deleted is not None:
             override["deleted"] = deleted
+        if sop_current_step is not None:
+            override["sop_current_step"] = sop_current_step
         conn.execute(
             "INSERT INTO occurrence_overrides (date_str, event_id, data) VALUES (?, ?, ?) "
             "ON CONFLICT(date_str, event_id) DO UPDATE SET data=excluded.data",

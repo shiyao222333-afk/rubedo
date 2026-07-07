@@ -77,13 +77,15 @@ def write_occurrence_override(
     locked: bool = None,
     start: str = None,
     end: str = None,
-    deleted: bool = None
+    deleted: bool = None,
+    sop_current_step: int = None
 ) -> None:
     """Write an override for a recurring event occurrence (to SQLite)."""
     try:
         store.write_occurrence_override(
             date_str, event_id,
-            status=status, locked=locked, start=start, end=end, deleted=deleted
+            status=status, locked=locked, start=start, end=end, deleted=deleted,
+            sop_current_step=sop_current_step
         )
     except Exception as e:
         log.error(f"write_occurrence_override failed: {e}")
@@ -256,16 +258,17 @@ def find_event_by_id(event_id: str):
 
     返回整天的事件列表（而非单个事件），与 save_event_day(day, events) 契约一致，
     供调用方修改 sop_current_step 等字段后整体写回。
+
+    限制3 fix: 走 store.find_day_by_event_id（event_id 索引，O(1)），
+    不再遍历每一天开连接做全表天扫描。
     """
-    for day_str in store.all_event_days():
+    day_str = store.find_day_by_event_id(event_id)
+    if day_str:
         try:
             d = date.fromisoformat(day_str)
         except ValueError:
-            continue
-        events = store.read_day(d)
-        for ev in events:
-            if ev.get("id") == event_id:
-                return d, events
+            return None, None
+        return d, store.read_day(d)
     return None, None
 
 
@@ -397,6 +400,8 @@ def expand_recurring_schedules(start: date, end: date) -> list[dict]:
                 "readonly": True,
                 "schedule_id": sid,
                 "recurring": True,
+                "sop_id": s.get("sop_id", "kujiale"),
+                "sop_current_step": occurrence_override.get("sop_current_step", 0),
             })
 
     return events

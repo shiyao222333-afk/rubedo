@@ -43,6 +43,10 @@
 - **并发安全**：所有文件 I/O（`read_day`, `write_day`, `read_schedules`, `write_schedules`, `read_occurrence_overrides`, `write_occurrence_override`, `read_timelog`, `write_timelog_entry`）添加 `filelock` 锁，防止多请求并发写入数据损坏
 - **异常处理**：所有 API 路由的 `except Exception` 块添加错误日志（`print` + `traceback.print_exc()`），方便调试
 - **硬编码年份修复**：`holidays.py` 中 `SOLAR_TERMS_2025` 改为 `SOLAR_TERMS_BY_YEAR`（支持 2024-2026 年），`api.py` 同步更新
+- **v0.4 三轮审查的 3 个已知限制全部修复**：
+  - 🟡 **限制3（查找慢）**：`events` 表新增 `event_id` 列 + 索引 `idx_events_event_id`；`find_event_by_id` 改走索引 O(1) 定位（`all_event_days()` 全表天扫描已弃用）；`init_store` 幂等迁移旧数据（`UPDATE event_id=json_extract(data,'$.id')`）。真实库已验证迁移（nulls=0）
+  - 🟡 **限制2（时间记录写错天）**：`store.write_timelog_entry` 不再写死 `date.today()`，改为优先用 entry 的 `start_time`/`day` 提取日期，跨午夜记账不再算错天
+  - 🟡 **限制1（重复任务进度）**：运行时展开的重复事件现在继承 schedule 的 `sop_id`（缺省 `kujiale`）并通过 `occurrence_overrides` 表记录 `sop_current_step`；`api_update_sop_step` 识别 `recurring-` 前缀改走 override 读写，重复任务（如每周站会）也能在详情面板记 SOP 步骤进度
 - **输入验证**：关键 API 端点添加输入验证（`api_create_event`, `api_update_event`, `api_write_timelog`, `api_add_custom_holiday`）
 - **时间选择联动（新建对话框）**：开始时间变化自动调整结束时间（如果结束时间更早或为空）
 - **时间选择联动（编辑对话框）**：日期输入框加联动（`syncEndDateMin()`, `syncStartDateMax()`），结束日期不能早于开始日期

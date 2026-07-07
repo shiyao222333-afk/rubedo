@@ -717,14 +717,28 @@ async def api_get_sop(request: Request):
 async def api_update_sop_step(request: Request):
     """Update event's sop_current_step."""
     try:
+        from datetime import datetime
         event_id = request.path_params["event_id"]
         data = await request.json()
         new_step = data.get("step")
         
         if new_step is None:
             return JSONResponse({"ok": False, "error": "缺少 step 参数"})
-        
-        # 找到事件并更新 sop_current_step (v0.4 T3: 改走 SQLite DAL)
+
+        # 限制1 fix: 重复事件（运行时展开，不在 events 表）的 SOP 步骤进度
+        # 存进 occurrence_overrides（按 日期+event_id），与完成/锁定状态同表
+        if event_id.startswith("recurring-"):
+            # event_id 形如 recurring-{schedule_id}-{YYYY-MM-DD}，末尾三段为日期
+            parts = event_id.split("-")
+            date_str = "-".join(parts[-3:])
+            try:
+                datetime.fromisoformat(date_str)  # 仅校验格式
+            except ValueError:
+                return JSONResponse({"ok": False, "error": "无效的重复事件 id"})
+            write_occurrence_override(date_str, event_id, sop_current_step=new_step)
+            return JSONResponse({"ok": True})
+
+        # 普通事件：找到并更新 sop_current_step (v0.4 T3: 改走 SQLite DAL)
         found = False
         day, events = find_event_by_id(event_id)
         if day is not None:
