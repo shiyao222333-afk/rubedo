@@ -19,6 +19,12 @@ from starlette.responses import JSONResponse
 from modules.shared.logging_cfg import get_logger
 log = get_logger("rubedo.api")
 
+from modules.shared.store import (
+    create_project, list_projects, get_project, update_project,
+    delete_project, bind_event_to_project, unbind_event_from_project,
+)
+from modules.shared.errors import DataAccessError
+
 from utils import (
     read_day, write_day, read_schedules, write_schedules,
     write_occurrence_override, write_timelog_entry,
@@ -83,6 +89,7 @@ async def api_create_event(request: Request):
             "exec_mode":   exec_mode,
             "status":      "pending",
             "locked":      False,
+            "project_id":  data.get("project_id"),   # 大类一 P3：绑订单（可空）
         }
         events.append(event)
         write_day(day, events)
@@ -177,6 +184,8 @@ async def api_update_event(request: Request):
                         end_dt   = datetime.fromisoformat(data["end"])
                         sch["start_time"] = start_dt.strftime("%H:%M")
                         sch["duration_minutes"] = int((end_dt - start_dt).total_seconds() / 60)
+                    if "project_id" in data:
+                        sch["project_id"] = data["project_id"]
                     break
             write_schedules(schedules)
             return JSONResponse({"ok": True})
@@ -199,6 +208,8 @@ async def api_update_event(request: Request):
                 if "start" in data and "end" in data:
                     ev["start"] = data["start"]
                     ev["end"]   = data["end"]
+                if "project_id" in data:
+                    ev["project_id"] = data["project_id"]
                 break
         write_day(day, events)
         return JSONResponse({"ok": True})
@@ -818,6 +829,100 @@ async def api_report_client_error(request: Request):
     return JSONResponse({"ok": True})
 
 
+# ====== Project (订单) API Routes ======
+async def api_list_projects(request: Request):
+    try:
+        status = request.query_params.get("status")
+        items = list_projects(status)
+        return JSONResponse({"ok": True, "projects": items})
+    except Exception as e:
+        log.exception(f"api_list_projects: {e}")
+        return JSONResponse({"ok": False, "error": str(e)})
+
+async def api_create_project(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"})
+    try:
+        pid = create_project(data)
+        return JSONResponse({"ok": True, "id": pid})
+    except DataAccessError as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+    except Exception as e:
+        log.exception(f"api_create_project: {e}")
+        return JSONResponse({"ok": False, "error": str(e)})
+
+async def api_get_project(request: Request):
+    pid = request.path_params["project_id"]
+    try:
+        p = get_project(pid)
+        if not p:
+            return JSONResponse({"ok": False, "error": "项目不存在"})
+        return JSONResponse({"ok": True, "project": p})
+    except Exception as e:
+        log.exception(f"api_get_project: {e}")
+        return JSONResponse({"ok": False, "error": str(e)})
+
+async def api_update_project(request: Request):
+    pid = request.path_params["project_id"]
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"})
+    try:
+        ok = update_project(pid, data)
+        return JSONResponse({"ok": ok})
+    except DataAccessError as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+    except Exception as e:
+        log.exception(f"api_update_project: {e}")
+        return JSONResponse({"ok": False, "error": str(e)})
+
+async def api_delete_project(request: Request):
+    pid = request.path_params["project_id"]
+    try:
+        delete_project(pid)
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        log.exception(f"api_delete_project: {e}")
+        return JSONResponse({"ok": False, "error": str(e)})
+
+async def api_bind_event_to_project(request: Request):
+    pid = request.path_params["project_id"]
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"})
+    eid = (data or {}).get("event_id")
+    if not eid:
+        return JSONResponse({"ok": False, "error": "缺少 event_id"})
+    try:
+        bind_event_to_project(pid, eid)
+        return JSONResponse({"ok": True})
+    except DataAccessError as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+    except Exception as e:
+        log.exception(f"api_bind_event_to_project: {e}")
+        return JSONResponse({"ok": False, "error": str(e)})
+
+async def api_unbind_event_from_project(request: Request):
+    pid = request.path_params["project_id"]
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"})
+    eid = (data or {}).get("event_id")
+    if not eid:
+        return JSONResponse({"ok": False, "error": "缺少 event_id"})
+    try:
+        unbind_event_from_project(pid, eid)
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        log.exception(f"api_unbind_event_from_project: {e}")
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
 def register_api_routes(app):
     """Register all API routes with the NiceGUI app object.
 
@@ -858,6 +963,15 @@ def register_api_routes(app):
 
     # SOP
     app.router.add_route("/api/sop/{sop_id}",        api_get_sop,             methods=["GET"])
+
+    # Projects（大类一 P4：订单 CRUD + 绑/解绑事件）
+    app.router.add_route("/api/projects",                  api_list_projects,          methods=["GET"])
+    app.router.add_route("/api/projects",                  api_create_project,         methods=["POST"])
+    app.router.add_route("/api/projects/{project_id}",     api_get_project,            methods=["GET"])
+    app.router.add_route("/api/projects/{project_id}",     api_update_project,         methods=["PUT"])
+    app.router.add_route("/api/projects/{project_id}",     api_delete_project,         methods=["DELETE"])
+    app.router.add_route("/api/projects/{project_id}/bind",   api_bind_event_to_project,  methods=["POST"])
+    app.router.add_route("/api/projects/{project_id}/unbind", api_unbind_event_from_project, methods=["POST"])
 
     # Special days
     app.router.add_route("/api/special-days",         api_list_special_days,     methods=["GET"])

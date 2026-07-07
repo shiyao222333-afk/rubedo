@@ -13,9 +13,10 @@
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
+from uuid import uuid4
 
 from .errors import DataAccessError
 from .logging_cfg import get_logger
@@ -123,8 +124,32 @@ def _create_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    # 大类一 P1: 项目表（订单档案）。结构化列（非整块 JSON）便于按状态筛选/聚合。
+    # sop_current_step 用 TEXT 存 step_id（如 "1.3"），不随 SOP 增删错位（ADR-002 D1）。
+    # step_data 为 JSON 黑板：{step_id: {duration_sec, fields:{...}, active_timer:{...}}}。
+    # status 含 on_hold/cancelled（G5）。
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS projects (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            client TEXT,
+            sop_id TEXT NOT NULL DEFAULT 'kujiale',
+            income REAL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending','active','review','done','paid','cancelled','on_hold')),
+            sop_current_step TEXT DEFAULT '',
+            step_data TEXT DEFAULT '{}',
+            due_date TEXT,
+            notes TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_day ON events(day)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_timelog_day ON timelog(day)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)")
 
 
 # ====== Events ======
@@ -311,3 +336,184 @@ def write_custom_holidays(items: list) -> None:
                 "INSERT INTO custom_holidays (data) VALUES (?)",
                 (json.dumps(it, ensure_ascii=False),),
             )
+
+
+# ====== Projects（大类一 P1：订单档案）======
+def _row_to_project(row) -> dict:
+    d = dict(row)
+    try:
+        d["step_data"] = json.loads(d["step_data"]) if d.get("step_data") else {}
+    except (json.JSONDecodeError, TypeError):
+        d["step_data"] = {}
+    return d
+
+
+def create_project(payload: dict) -> str:
+    """新建项目（订单）。name 必填；返回项目 id。"""
+    pid = payload.get("id") or str(uuid4())
+    now = datetime.now().isoformat(timespec="seconds")
+    name = (payload.get("name") or "").strip()
+    if not name:
+        raise DataAccessError("项目 name 不能为空")
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO projects "
+            "(id,name,client,sop_id,income,status,sop_current_step,step_data,due_date,notes,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                pid, name, payload.get("client"),
+                payload.get("sop_id", "kujiale"),
+                float(payload.get("income") or 0),
+                payload.get("status", "pending"),
+                payload.get("sop_current_step", ""),
+                json.dumps(payload.get("step_data") or {}, ensure_ascii=False),
+                payload.get("due_date"), payload.get("notes"),
+                now, now,
+            ),
+        )
+    return pid
+
+
+def list_projects(status: Optional[str] = None) -> list:
+    with _connect() as conn:
+        if status:
+            rows = conn.execute(
+                "SELECT * FROM projects WHERE status=? ORDER BY created_at DESC", (status,)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM projects ORDER BY created_at DESC").fetchall()
+        return [_row_to_project(r) for r in rows]
+
+
+def get_project(pid: str) -> Optional[dict]:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM projects WHERE id=?", (pid,)).fetchone()
+        return _row_to_project(row) if row else None
+
+
+def update_project(pid: str, fields: dict) -> bool:
+    """更新项目字段（白名单）。返回是否更新到行。"""
+    allowed = {"name", "client", "sop_id", "income", "status",
+               "sop_current_step", "step_data", "due_date", "notes"}
+    sets, vals = [], []
+    for k, v in fields.items():
+        if k not in allowed or v is None and k not in ("income", "due_date", "notes"):
+            if k not in allowed:
+                continue
+        if k == "step_data" and isinstance(v, dict):
+            v = json.dumps(v, ensure_ascii=False)
+        if k == "income":
+            v = float(v or 0)
+        sets.append(f"{k}=?")
+        vals.append(v)
+    if not sets:
+        return False
+    sets.append("updated_at=?")
+    vals.append(datetime.now().isoformat(timespec="seconds"))
+    vals.append(pid)
+    with _connect() as conn:
+        cur = conn.execute(
+            f"UPDATE projects SET {','.join(sets)} WHERE id=?", vals
+        )
+        return cur.rowcount > 0
+
+
+def delete_project(pid: str) -> None:
+    """删除项目（G20 解决）：级联把引用它的 project_id 置空，计时日志保留做历史。"""
+    with _connect() as conn:
+        erows = conn.execute(
+            "SELECT day, seq, data FROM events WHERE json_extract(data,'$.project_id')=?", (pid,)
+        ).fetchall()
+        for r in erows:
+            ev = json.loads(r["data"]); ev["project_id"] = None
+            conn.execute("UPDATE events SET data=? WHERE day=? AND seq=?",
+                         (json.dumps(ev, ensure_ascii=False), r["day"], r["seq"]))
+        srows = conn.execute(
+            "SELECT id, data FROM schedules WHERE json_extract(data,'$.project_id')=?", (pid,)
+        ).fetchall()
+        for r in srows:
+            s = json.loads(r["data"]); s["project_id"] = None
+            conn.execute("UPDATE schedules SET data=? WHERE id=?",
+                         (json.dumps(s, ensure_ascii=False), r["id"]))
+        orows = conn.execute(
+            "SELECT date_str, event_id, data FROM occurrence_overrides "
+            "WHERE json_extract(data,'$.project_id')=?", (pid,)
+        ).fetchall()
+        for r in orows:
+            o = json.loads(r["data"]); o["project_id"] = None
+            conn.execute("UPDATE occurrence_overrides SET data=? WHERE date_str=? AND event_id=?",
+                         (json.dumps(o, ensure_ascii=False), r["date_str"], r["event_id"]))
+        conn.execute("DELETE FROM projects WHERE id=?", (pid,))
+
+
+def _parse_occurrence_date_str(event_id: str) -> str:
+    """recurring-{schedule_id}-{YYYY-MM-DD} -> YYYY-MM-DD"""
+    parts = event_id.split("-")
+    return "-".join(parts[-3:])
+
+
+def bind_event_to_project(pid: str, event_id: str) -> None:
+    """把事件/重复实例绑到项目；若为 pending 项目则自动转 active（G5）。"""
+    if event_id.startswith("recurring-"):
+        date_str = _parse_occurrence_date_str(event_id)
+        row = None
+        with _connect() as conn:
+            row = conn.execute(
+                "SELECT data FROM occurrence_overrides WHERE date_str=? AND event_id=?",
+                (date_str, event_id),
+            ).fetchone()
+            if not row:
+                raise DataAccessError("该重复实例不存在")
+            o = json.loads(row["data"]); o["project_id"] = pid
+            conn.execute(
+                "INSERT INTO occurrence_overrides (date_str, event_id, data) VALUES (?,?,?) "
+                "ON CONFLICT(date_str, event_id) DO UPDATE SET data=excluded.data",
+                (date_str, event_id, json.dumps(o, ensure_ascii=False)),
+            )
+    else:
+        day = find_day_by_event_id(event_id)
+        if day is None:
+            raise DataAccessError("该事件不存在")
+        events = read_day(date.fromisoformat(day))
+        found = False
+        for ev in events:
+            if ev.get("id") == event_id:
+                ev["project_id"] = pid
+                found = True
+                break
+        if not found:
+            raise DataAccessError("该事件不存在")
+        write_day(date.fromisoformat(day), events)
+    # 自动流转 pending -> active（G5）
+    proj = get_project(pid)
+    if proj and proj["status"] == "pending":
+        update_project(pid, {"status": "active"})
+
+
+def unbind_event_from_project(pid: str, event_id: str) -> None:
+    """解绑事件/重复实例（仅置空 project_id，不影响其它数据）。"""
+    if event_id.startswith("recurring-"):
+        date_str = _parse_occurrence_date_str(event_id)
+        with _connect() as conn:
+            row = conn.execute(
+                "SELECT data FROM occurrence_overrides WHERE date_str=? AND event_id=?",
+                (date_str, event_id),
+            ).fetchone()
+            if not row:
+                return
+            o = json.loads(row["data"]); o["project_id"] = None
+            conn.execute(
+                "INSERT INTO occurrence_overrides (date_str, event_id, data) VALUES (?,?,?) "
+                "ON CONFLICT(date_str, event_id) DO UPDATE SET data=excluded.data",
+                (date_str, event_id, json.dumps(o, ensure_ascii=False)),
+            )
+    else:
+        day = find_day_by_event_id(event_id)
+        if day is None:
+            return
+        events = read_day(date.fromisoformat(day))
+        for ev in events:
+            if ev.get("id") == event_id:
+                ev["project_id"] = None
+                break
+        write_day(date.fromisoformat(day), events)

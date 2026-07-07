@@ -401,6 +401,7 @@ def expand_recurring_schedules(start: date, end: date) -> list[dict]:
                     "recurring": True,
                     "sop_id": s.get("sop_id", "kujiale"),
                     "sop_current_step": occurrence_override.get("sop_current_step", 0),
+                    "project_id": s.get("project_id"),   # 大类一 P3：模板级绑定（可空，实例可覆盖）
                 })
         except Exception as e:
             # 单条模板配置异常（缺 id / 非法字段）不应拖垮整本日历
