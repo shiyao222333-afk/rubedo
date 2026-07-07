@@ -35,7 +35,7 @@ flowchart TD
     TA --> TB{填写收入？}
     TB -->|是| TC[输入本单收入]
     TC --> TD[自动计算时薪]
-    TD --> TE[存入 timelog/YYYY-MM-DD.json]
+    TD --> TE[存入 SQLite timelog 表]
     TB -->|否| TE
     TE --> Q[更新主界面时间表]
     Q --> B
@@ -67,7 +67,7 @@ flowchart TD
 | TB | 收入确认 | 耗时 + SOP 类型 | TC 或 TE | 询问用户是否填写收入 |
 | TC | 收入输入 | 用户输入收入金额 | TD | 弹窗输入本单收入 |
 | TD | 时薪计算 | 耗时 + 收入 | TE | 时薪 = 收入 / 耗时（小时） |
-| TE | 时薪存储 | 时薪 + 完整执行记录 | Q | 写入 data/timelog/YYYY-MM-DD.json |
+| TE | 时薪存储 | 时薪 + 完整执行记录 | Q | 写入 SQLite（timelog 表，经 DAL 封装） |
 | Q | 日程更新 | 完成状态 | B | 主界面刷新，已完成事项打勾或移除 |
 
 ---
@@ -105,4 +105,4 @@ flowchart TD
 
 ---
 
-> 版本：v1.1 | 更新于：2026-06-25 | 新增时间审计分支(TA~TE) + 16→23 节点
+> 版本：v1.2 | 更新于：2026-07-07 | v0.4 地基：数据源由 JSON 切换为 SQLite DAL（见 ADR-001）；新增时间审计分支(TA~TE)

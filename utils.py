@@ -42,9 +42,7 @@ EXEC_MODES  = ["auto", "manual"]
 STATUSES   = ["pending", "done", "skipped"]
 
 # ====== Schedules (重复事件模板) ======
-# 注意：以下常量保留供 api.py 兼容导入；数据实际已迁到 SQLite（store）。
-SCHEDULES_FILE = DATA_DIR / "schedules.json"
-OCCURRENCE_OVERRIDES_FILE = DATA_DIR / "occurrence_overrides.json"
+# 数据已迁到 SQLite（store）。原 schedules.json / occurrence_overrides.json 路径常量已弃用，不再保留。
 
 # ====== Schedules I/O (v0.4 T3: 改走 SQLite DAL) ======
 def read_schedules() -> list[dict]:
@@ -216,7 +214,7 @@ def get_special_days(year: int) -> dict:
     return result
 
 def all_events_in_range(start: date, end: date) -> list[dict]:
-    """Read all non-recurring events in a date range from daily JSON files."""
+    """Read all non-recurring events in a date range (from SQLite via DAL)."""
     result = []
     current = start
     while current <= end:

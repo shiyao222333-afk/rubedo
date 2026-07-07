@@ -24,7 +24,7 @@ from utils import (
     write_occurrence_override, write_timelog_entry,
     all_timelog_in_range, all_events_in_range,
     calc_hourly_rate, expand_recurring_schedules, expand_preheat_schedules,
-    get_special_days, strip_icon, DATA_DIR, SCHEDULES_FILE, OCCURRENCE_OVERRIDES_FILE,
+    get_special_days, strip_icon,
     read_custom_holidays, write_custom_holidays, load_sop,
     find_event_by_id, save_event_day,
     KIND_COLORS, EXEC_MODES
@@ -103,9 +103,9 @@ async def api_create_event(request: Request):
 
 async def api_update_event(request: Request):
     """Update an existing event (text, kind, exec_mode, time, etc.).
-    
-    对重复事件（recurring=True），改 schedules.json 模板（影响所有 occurrence）。
-    对普通事件，改当天 daily JSON 文件。
+
+    对重复事件（recurring=True），改 schedules 表模板（影响所有 occurrence）。
+    对普通事件，改当天 events 表（SQLite DAL）。
     """
     try:
         data = await request.json()
@@ -131,8 +131,8 @@ async def api_update_event(request: Request):
             if "schedule_id" not in data:
                 return JSONResponse({"ok": False, "error": "Missing required field: schedule_id for recurring event"})
         
-        # 验证 kind 枚举值
-        if "kind" in data and data["kind"] not in ("reminder", "work", "personal", "holiday", "sop"):
+        # 验证 kind 枚举值（与 api_create_event 共用 KIND_COLORS 单一真相源，避免创建/更新允许值不一致）
+        if "kind" in data and data["kind"] not in KIND_COLORS:
             return JSONResponse({"ok": False, "error": f"Invalid kind: {data['kind']}"})
         
         # 验证 exec_mode 枚举值
@@ -152,7 +152,7 @@ async def api_update_event(request: Request):
         
         log.debug(f"api_update_event: recurring={data.get('recurring')}, schedule_id={data.get('schedule_id')}")
         
-        # ---- 重复事件：改模板（schedules.json）----
+        # ---- 重复事件：改模板（schedules 表，SQLite）----
         if data.get("recurring") and data.get("schedule_id"):
             log.debug(f"Updating recurring event, schedule_id={data['schedule_id']}")
             schedules = read_schedules()
@@ -181,7 +181,7 @@ async def api_update_event(request: Request):
             write_schedules(schedules)
             return JSONResponse({"ok": True})
         
-        # ---- 普通事件：改当天 daily JSON ----
+        # ---- 普通事件：改当天 events 表（SQLite DAL）----
         day = date.fromisoformat(data["day"])
         events = read_day(day)
         for ev in events:
