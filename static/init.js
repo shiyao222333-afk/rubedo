@@ -6,6 +6,33 @@
         let currentStart = _t.subtract(_d === 0 ? 6 : _d - 1, "day").startOf("day");
         var cellBackgrounds = {};   // 日期背景色缓存
 
+        // ---- 全局错误可见化：把静默失败变成红字提示（避免"没反应也没报错"难排查）----
+        function showErrorBanner(msg) {
+            var b = document.getElementById("err-banner");
+            if (!b) {
+                b = document.createElement("div");
+                b.id = "err-banner";
+                b.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9999;background:#c0392b;color:#fff;padding:10px 16px;font:13px/1.5 Microsoft YaHei,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.4);white-space:pre-wrap;max-height:40vh;overflow:auto;";
+                document.body.appendChild(b);
+            }
+            b.textContent = "⚠️ 前端错误（把这段发给我即可定位）：\n" + msg;
+            b.style.display = "block";
+        }
+        window.addEventListener("error", function(e) {
+            showErrorBanner((e.message || "Error") + "\n@ " + (e.filename || "") + ":" + (e.lineno || ""));
+        });
+        window.addEventListener("unhandledrejection", function(e) {
+            var r = e.reason;
+            showErrorBanner("未处理的 Promise 拒绝: " + (r && r.stack ? r.stack : (r && r.toString ? r.toString() : String(r))));
+        });
+        function showToast(msg) {
+            var t = document.createElement("div");
+            t.textContent = msg;
+            t.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9998;background:#27ae60;color:#fff;padding:10px 18px;border-radius:8px;font:14px Microsoft YaHei,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.35);";
+            document.body.appendChild(t);
+            setTimeout(function() { t.remove(); }, 2500);
+        }
+
         // ---- 日期提取：直接用 value 前10位（DayPilot 按 UTC 天分列，同列日期一致）----
         function cellDateStr(start) {
             try {
@@ -637,10 +664,11 @@
                 });
                 var guide = document.getElementById("empty-guide");
                 if (guide) guide.style.display = userEvents.length === 0 ? "block" : "none";
-            }).catch(function() {
+            }).catch(function(err) {
                 cellBackgrounds = {};
                 dp.events.list = [];
                 dp.update();
+                showErrorBanner("日历刷新失败（loadEvents）：" + (err && err.stack ? err.stack : (err && err.toString ? err.toString() : String(err))));
             });
         }
 
@@ -998,6 +1026,7 @@
                     if (data.ok) {
                         overlay.remove();
                         loadEvents();
+                        showToast("✅ 事件已创建，日历已刷新");
                         // T4: 创建 SOP 事件后引导到 SOP 页面
                         if (kind === "sop") {
                             if (confirm("✅ SOP 事件已创建！\n\n是否打开 SOP 流程页？")) {
