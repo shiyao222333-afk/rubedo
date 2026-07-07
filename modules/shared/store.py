@@ -348,6 +348,11 @@ def _row_to_project(row) -> dict:
     return d
 
 
+# 项目合法状态（G5）：pending 待接单 / active 进行中 / review 待验收 / done 已完成 / paid 已收款
+# cancelled 已取消 / on_hold 挂起。建/改时统一校验，避免写入非法值触发底层约束报错。
+VALID_PROJECT_STATUSES = ('pending', 'active', 'review', 'done', 'paid', 'cancelled', 'on_hold')
+
+
 def create_project(payload: dict) -> str:
     """新建项目（订单）。name 必填；返回项目 id。"""
     pid = payload.get("id") or str(uuid4())
@@ -355,6 +360,10 @@ def create_project(payload: dict) -> str:
     name = (payload.get("name") or "").strip()
     if not name:
         raise DataAccessError("项目 name 不能为空")
+    status = payload.get("status", "pending")
+    if status not in VALID_PROJECT_STATUSES:
+        raise DataAccessError(
+            f"状态必须是 {', '.join(VALID_PROJECT_STATUSES)} 之一，收到：{status!r}")
     with _connect() as conn:
         conn.execute(
             "INSERT INTO projects "
@@ -364,7 +373,7 @@ def create_project(payload: dict) -> str:
                 pid, name, payload.get("client"),
                 payload.get("sop_id", "kujiale"),
                 float(payload.get("income") or 0),
-                payload.get("status", "pending"),
+                status,
                 payload.get("sop_current_step", ""),
                 json.dumps(payload.get("step_data") or {}, ensure_ascii=False),
                 payload.get("due_date"), payload.get("notes"),
@@ -392,14 +401,24 @@ def get_project(pid: str) -> Optional[dict]:
 
 
 def update_project(pid: str, fields: dict) -> bool:
-    """更新项目字段（白名单）。返回是否更新到行。"""
+    """更新项目字段（白名单）。返回是否更新到行。
+
+    必填字段（name/sop_id/status）传 None 或空串 → 跳过（保留原值），不写入 NULL 触发约束。
+    可选字段（client/due_date/notes/income）传 None 可清空。
+    """
     allowed = {"name", "client", "sop_id", "income", "status",
                "sop_current_step", "step_data", "due_date", "notes"}
+    required = {"name", "sop_id", "status"}
     sets, vals = [], []
     for k, v in fields.items():
-        if k not in allowed or v is None and k not in ("income", "due_date", "notes"):
-            if k not in allowed:
-                continue
+        if k not in allowed:
+            continue
+        if k == "status" and v not in VALID_PROJECT_STATUSES:
+            raise DataAccessError(
+                f"状态必须是 {', '.join(VALID_PROJECT_STATUSES)} 之一，收到：{v!r}")
+        # 必填字段空值 = 不修改（保留原值），避免写入 NULL 触发 NOT NULL 约束
+        if k in required and (v is None or v == ""):
+            continue
         if k == "step_data" and isinstance(v, dict):
             v = json.dumps(v, ensure_ascii=False)
         if k == "income":
@@ -418,8 +437,9 @@ def update_project(pid: str, fields: dict) -> bool:
         return cur.rowcount > 0
 
 
-def delete_project(pid: str) -> None:
-    """删除项目（G20 解决）：级联把引用它的 project_id 置空，计时日志保留做历史。"""
+def delete_project(pid: str) -> bool:
+    """删除项目（G20 解决）：级联把引用它的 project_id 置空，计时日志保留做历史。返回是否删到了行。"""
+    deleted = False
     with _connect() as conn:
         erows = conn.execute(
             "SELECT day, seq, data FROM events WHERE json_extract(data,'$.project_id')=?", (pid,)
@@ -443,7 +463,9 @@ def delete_project(pid: str) -> None:
             o = json.loads(r["data"]); o["project_id"] = None
             conn.execute("UPDATE occurrence_overrides SET data=? WHERE date_str=? AND event_id=?",
                          (json.dumps(o, ensure_ascii=False), r["date_str"], r["event_id"]))
-        conn.execute("DELETE FROM projects WHERE id=?", (pid,))
+        cur = conn.execute("DELETE FROM projects WHERE id=?", (pid,))
+        deleted = cur.rowcount > 0
+    return deleted
 
 
 def _parse_occurrence_date_str(event_id: str) -> str:
@@ -456,15 +478,15 @@ def bind_event_to_project(pid: str, event_id: str) -> None:
     """把事件/重复实例绑到项目；若为 pending 项目则自动转 active（G5）。"""
     if event_id.startswith("recurring-"):
         date_str = _parse_occurrence_date_str(event_id)
-        row = None
         with _connect() as conn:
             row = conn.execute(
                 "SELECT data FROM occurrence_overrides WHERE date_str=? AND event_id=?",
                 (date_str, event_id),
             ).fetchone()
-            if not row:
-                raise DataAccessError("该重复实例不存在")
-            o = json.loads(row["data"]); o["project_id"] = pid
+            # U3 接单按天绑定：该重复实例尚无记录行时自动建一行（create-or-update），
+            # 而非报错 "该重复实例不存在"
+            o = json.loads(row["data"]) if row else {}
+            o["project_id"] = pid
             conn.execute(
                 "INSERT INTO occurrence_overrides (date_str, event_id, data) VALUES (?,?,?) "
                 "ON CONFLICT(date_str, event_id) DO UPDATE SET data=excluded.data",
