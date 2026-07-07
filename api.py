@@ -271,7 +271,10 @@ async def api_move_event(request: Request):
             new_events = read_day(new_day)
             new_events.append(moved)
             write_day(new_day, new_events)
-        return JSONResponse({"ok": True, "event": moved})
+            return JSONResponse({"ok": True, "event": moved})
+        # 没找到目标事件：明确报错，避免前端静默"没反应"
+        log.warning(f"api_move_event: 找不到事件 old_id={data.get('old_id')} old_day={old_day}")
+        return JSONResponse({"ok": False, "error": "Event not found"})
     except Exception as e:
         log.exception(f"api_move_event: {e}")
         return JSONResponse({"ok": False, "error": str(e)})

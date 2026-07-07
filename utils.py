@@ -310,99 +310,104 @@ def expand_recurring_schedules(start: date, end: date) -> list[dict]:
     overrides_by_date = read_occurrence_overrides()
 
     for s in schedules:
-        sid = s["id"]
-        title = s.get("title", "未命名")
-        kind = s.get("kind", "reminder")
-        description = s.get("description", "")
-        reminder = s.get("reminder", "none")
-        exec_mode = s.get("exec_mode", "manual")
-        start_time = s.get("start_time", "09:00")
-        duration_minutes = s.get("duration_minutes", 60)
-        repeat_mode = s.get("repeat_mode", "none")
-        repeat_until = s.get("repeat_until", "")
+        try:
+            sid = s["id"]
+            title = s.get("title", "未命名")
+            kind = s.get("kind", "reminder")
+            description = s.get("description", "")
+            reminder = s.get("reminder", "none")
+            exec_mode = s.get("exec_mode", "manual")
+            start_time = s.get("start_time", "09:00")
+            duration_minutes = s.get("duration_minutes", 60)
+            repeat_mode = s.get("repeat_mode", "none")
+            repeat_until = s.get("repeat_until", "")
 
-        if repeat_mode == "none":
-            continue
-
-        # Calculate occurrences
-        occurrences = []
-        if repeat_mode == "daily":
-            current = start
-            while current <= end:
-                occurrences.append(current)
-                current += timedelta(days=1)
-        elif repeat_mode == "weekly":
-            weekdays = s.get("weekdays", [start.weekday()])
-            current = start
-            while current <= end:
-                if current.weekday() in weekdays:
-                    occurrences.append(current)
-                current += timedelta(days=1)
-        elif repeat_mode == "weekday":
-            current = start
-            while current <= end:
-                if current.weekday() < 5:
-                    occurrences.append(current)
-                current += timedelta(days=1)
-        elif repeat_mode == "monthly":
-            day_of_month = s.get("day_of_month", start.day)
-            current = start.replace(day=1)
-            while current <= end:
-                try:
-                    target = current.replace(day=day_of_month)
-                    if start <= target <= end:
-                        occurrences.append(target)
-                except ValueError:
-                    pass
-                # Move to next month
-                if current.month == 12:
-                    current = current.replace(year=current.year + 1, month=1)
-                else:
-                    current = current.replace(month=current.month + 1)
-        elif repeat_mode == "yearly":
-            month = s.get("month", start.month)
-            day = s.get("day", start.day)
-            current = start.replace(month=month, day=day)
-            while current <= end:
-                if current >= start:
-                    occurrences.append(current)
-                current = current.replace(year=current.year + 1)
-
-        # Parse start_time
-        sh, sm = 9, 0
-        if start_time and ":" in start_time:
-            parts = start_time.split(":")
-            sh = int(parts[0]) if parts[0].isdigit() else 9
-            sm = int(parts[1]) if parts[1].isdigit() else 0
-
-        for d in occurrences:
-            start_dt = datetime.combine(d, datetime.min.time().replace(hour=sh, minute=sm))
-            end_dt = start_dt + timedelta(minutes=duration_minutes)
-            event_id = f"recurring-{sid}-{d.isoformat()}"
-            date_overrides = overrides_by_date.get(d.isoformat(), {})
-            occurrence_override = date_overrides.get(event_id, {})
-
-            # Skip deleted occurrences
-            if occurrence_override.get("deleted", False):
+            if repeat_mode == "none":
                 continue
 
-            events.append({
-                "id": event_id,
-                "start": start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-                "end": end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-                "text": title,
-                "kind": kind,
-                "description": description,
-                "reminder": reminder,
-                "exec_mode": exec_mode,
-                "status": occurrence_override.get("status", "pending"),
-                "locked": occurrence_override.get("locked", False),
-                "readonly": True,
-                "schedule_id": sid,
-                "recurring": True,
-                "sop_id": s.get("sop_id", "kujiale"),
-                "sop_current_step": occurrence_override.get("sop_current_step", 0),
-            })
+            # Calculate occurrences
+            occurrences = []
+            if repeat_mode == "daily":
+                current = start
+                while current <= end:
+                    occurrences.append(current)
+                    current += timedelta(days=1)
+            elif repeat_mode == "weekly":
+                weekdays = s.get("weekdays", [start.weekday()])
+                current = start
+                while current <= end:
+                    if current.weekday() in weekdays:
+                        occurrences.append(current)
+                    current += timedelta(days=1)
+            elif repeat_mode == "weekday":
+                current = start
+                while current <= end:
+                    if current.weekday() < 5:
+                        occurrences.append(current)
+                    current += timedelta(days=1)
+            elif repeat_mode == "monthly":
+                day_of_month = s.get("day_of_month", start.day)
+                current = start.replace(day=1)
+                while current <= end:
+                    try:
+                        target = current.replace(day=day_of_month)
+                        if start <= target <= end:
+                            occurrences.append(target)
+                    except ValueError:
+                        pass
+                    # Move to next month
+                    if current.month == 12:
+                        current = current.replace(year=current.year + 1, month=1)
+                    else:
+                        current = current.replace(month=current.month + 1)
+            elif repeat_mode == "yearly":
+                month = s.get("month", start.month)
+                day = s.get("day", start.day)
+                current = start.replace(month=month, day=day)
+                while current <= end:
+                    if current >= start:
+                        occurrences.append(current)
+                    current = current.replace(year=current.year + 1)
+
+            # Parse start_time
+            sh, sm = 9, 0
+            if start_time and ":" in start_time:
+                parts = start_time.split(":")
+                sh = int(parts[0]) if parts[0].isdigit() else 9
+                sm = int(parts[1]) if parts[1].isdigit() else 0
+
+            for d in occurrences:
+                start_dt = datetime.combine(d, datetime.min.time().replace(hour=sh, minute=sm))
+                end_dt = start_dt + timedelta(minutes=duration_minutes)
+                event_id = f"recurring-{sid}-{d.isoformat()}"
+                date_overrides = overrides_by_date.get(d.isoformat(), {})
+                occurrence_override = date_overrides.get(event_id, {})
+
+                # Skip deleted occurrences
+                if occurrence_override.get("deleted", False):
+                    continue
+
+                events.append({
+                    "id": event_id,
+                    "start": start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "end": end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "text": title,
+                    "kind": kind,
+                    "description": description,
+                    "reminder": reminder,
+                    "exec_mode": exec_mode,
+                    "status": occurrence_override.get("status", "pending"),
+                    "locked": occurrence_override.get("locked", False),
+                    "readonly": True,
+                    "schedule_id": sid,
+                    "recurring": True,
+                    "sop_id": s.get("sop_id", "kujiale"),
+                    "sop_current_step": occurrence_override.get("sop_current_step", 0),
+                })
+        except Exception as e:
+            # 单条模板配置异常（缺 id / 非法字段）不应拖垮整本日历
+            log.error(f"expand_recurring_schedules: 跳过异常模板 {s.get('id', '?')}: {e}")
+            continue
 
     return events
 
