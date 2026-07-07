@@ -230,7 +230,14 @@ async def api_list_events(request: Request):
         events.extend(preheat_events)
         recurring_events = expand_recurring_schedules(start, end)
         events.extend(recurring_events)
-        return JSONResponse(events)
+        # 防御：缺 start/id 的坏事件直接跳过并告警，避免单条坏数据让 DayPilot 整页崩溃
+        clean = []
+        for ev in events:
+            if ev.get("id") and ev.get("start"):
+                clean.append(ev)
+            else:
+                log.warning(f"api_list_events: 跳过缺 start/id 的坏事件: {ev!r}")
+        return JSONResponse(clean)
     except Exception as e:
         log.exception(f"api_list_events: {e}")
         return JSONResponse([])
