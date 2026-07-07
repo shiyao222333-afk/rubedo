@@ -176,6 +176,7 @@
 
         // ---- 注册 SOP 渲染器（步骤导航 + 工具区）----
         window.DetailPanel.register('sop', function(event, container) {
+            window.DetailPanel._timers = window.DetailPanel._timers || {};
             var sopId = event.sop_id || 'kujiale';
             window.DetailPanel._currentEvent = event;
             
@@ -228,6 +229,13 @@
 
                             var statusIcon = idx < currentStep ? '✓' : (idx === currentStep ? '▶' : '⏳');
                             var label = (step.id ? step.id + ' ' : '') + (step.name || ('步骤' + (idx + 1)));
+                            var _timings = (event.sop_step_timings) || {};
+                            var _t = _timings[String(idx)];
+                            if (_t && _t.duration_sec != null) {
+                                var _m = Math.floor(_t.duration_sec / 60);
+                                var _s = _t.duration_sec % 60;
+                                label += '  ⏱' + (_m > 0 ? _m + '分' : '') + _s + '秒';
+                            }
                             stepEl.innerHTML = '<span class="sop-step-status">' + statusIcon + '</span><span>' + label + '</span>';
 
                             stepEl.onclick = function() {
@@ -255,22 +263,78 @@
         
         // ---- 显示步骤工具区（占位）----
         window.DetailPanel._showStepTool = function(sop, step, stepIdx, totalSteps) {
+            window.DetailPanel._last = {sop: sop, step: step, stepIdx: stepIdx, totalSteps: totalSteps};
             var toolArea = document.getElementById('sop-tool-area');
             var stageTag = step._stageName ? ('【' + step._stageName + '】 ') : '';
-            toolArea.innerHTML = `
-                <div style="color:#aaa;font-size:13px;margin-bottom:12px;">步骤 ${stepIdx + 1} / ${totalSteps}${step.id ? ' · ' + step.id : ''} ${stageTag}</div>
-                <div style="font-size:16px;font-weight:bold;color:#eee;margin-bottom:8px;">${step.name || '无标题'}</div>
-                <div style="font-size:13px;color:#ccc;line-height:1.6;margin-bottom:20px;padding:12px;background:#1a1a2e;border-radius:8px;">${step.description || '无描述'}</div>
-                <div style="font-size:12px;color:#888;margin-bottom:12px;">模式：${step.mode || 'manual'} · 预计：${step.est_min || 0} 分钟</div>
-                <div style="display:flex;gap:10px;">
-                    <button onclick="window.DetailPanel._markStepDone(${stepIdx})" style="padding:8px 16px;border:1px solid #0f3460;border-radius:6px;background:#0f3460;color:#eee;cursor:pointer;font-size:13px;">
-                        ${stepIdx < (window.DetailPanel._currentEvent.sop_current_step || 0) ? '已完成 ✓' : '标记完成'}
-                    </button>
-                </div>
-            `;
+            var ev = window.DetailPanel._currentEvent;
+            var running = ev && (window.DetailPanel._timers || {})[ev.id + ':' + stepIdx];
+            var timerBtnHtml;
+            if (running) {
+                var elapsed = Math.round((Date.now() - running) / 1000);
+                timerBtnHtml = ''
+                    + '<button onclick="window.DetailPanel._endTimer(' + stepIdx + ')" style="padding:8px 16px;border:1px solid #e94560;border-radius:6px;background:#e94560;color:#fff;cursor:pointer;font-size:13px;">'
+                    +   '⏹ 结束并标记完成（' + elapsed + '秒）'
+                    + '</button>';
+            } else {
+                timerBtnHtml = ''
+                    + '<button onclick="window.DetailPanel._startTimer(' + stepIdx + ')" style="padding:8px 16px;border:1px solid #0f3460;border-radius:6px;background:#0f3460;color:#eee;cursor:pointer;font-size:13px;">'
+                    +   '▶ 开始计时'
+                    + '</button>'
+                    + '<button onclick="window.DetailPanel._markStepDone(' + stepIdx + ')" style="padding:8px 16px;border:1px solid #533483;border-radius:6px;background:transparent;color:#ccc;cursor:pointer;font-size:13px;">'
+                    +   (stepIdx < (ev ? (ev.sop_current_step || 0) : 0) ? '已完成 ✓' : '标记完成（不计时）')
+                    + '</button>';
+            }
+            toolArea.innerHTML = ''
+                + '<div style="color:#aaa;font-size:13px;margin-bottom:12px;">步骤 ' + (stepIdx + 1) + ' / ' + totalSteps + (step.id ? ' · ' + step.id : '') + ' ' + stageTag + '</div>'
+                + '<div style="font-size:16px;font-weight:bold;color:#eee;margin-bottom:8px;">' + (step.name || '无标题') + '</div>'
+                + '<div style="font-size:13px;color:#ccc;line-height:1.6;margin-bottom:20px;padding:12px;background:#1a1a2e;border-radius:8px;">' + (step.description || '无描述') + '</div>'
+                + '<div style="font-size:12px;color:#888;margin-bottom:12px;">模式：' + (step.mode || 'manual') + ' · 预计：' + (step.est_min || 0) + ' 分钟</div>'
+                + '<div style="display:flex;gap:10px;flex-wrap:wrap;">' + timerBtnHtml + '</div>';
         };
-        
-        // ---- 标记步骤完成 ----
+
+        // ---- 开始计时：记录起点 ----
+        window.DetailPanel._startTimer = function(stepIdx) {
+            var ev = window.DetailPanel._currentEvent;
+            if (!ev) return;
+            window.DetailPanel._timers = window.DetailPanel._timers || {};
+            window.DetailPanel._timers[ev.id + ':' + stepIdx] = Date.now();
+            var last = window.DetailPanel._last;
+            if (last) window.DetailPanel._showStepTool(last.sop, last.step, last.stepIdx, last.totalSteps);
+        };
+
+        // ---- 结束计时并标记完成：算时长 → 写回 ----
+        window.DetailPanel._endTimer = function(stepIdx) {
+            var ev = window.DetailPanel._currentEvent;
+            if (!ev) return;
+            var key = ev.id + ':' + stepIdx;
+            var start = (window.DetailPanel._timers || {})[key];
+            var body = { step: stepIdx + 1 };
+            if (start) {
+                body.started_at = new Date(start).toISOString();
+                body.duration_sec = Math.round((Date.now() - start) / 1000);
+                body.mode = 'manual';
+                delete window.DetailPanel._timers[key];
+            }
+            fetch('/api/events/' + ev.id + '/sop-step', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    // 本地立即更新计时显示，无需等日历刷新
+                    if (body.duration_sec != null) {
+                        ev.sop_step_timings = ev.sop_step_timings || {};
+                        ev.sop_step_timings[String(stepIdx)] = {started_at: body.started_at, duration_sec: body.duration_sec, mode: body.mode};
+                    }
+                    window.DetailPanel.show(ev);
+                    if (window.dp) window.dp.loadEvents();
+                }
+            });
+        };
+
+        // ---- 标记步骤完成（不计时）----
         window.DetailPanel._markStepDone = function(stepIdx) {
             var event = window.DetailPanel._currentEvent;
             if (!event) return;

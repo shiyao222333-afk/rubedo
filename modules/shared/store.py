@@ -267,6 +267,7 @@ def write_occurrence_override(
     end=None,
     deleted=None,
     sop_current_step=None,
+    sop_step_timings=None,
 ) -> None:
     with _connect() as conn:
         row = conn.execute(
@@ -286,6 +287,8 @@ def write_occurrence_override(
             override["deleted"] = deleted
         if sop_current_step is not None:
             override["sop_current_step"] = sop_current_step
+        if sop_step_timings is not None:
+            override.setdefault("sop_step_timings", {}).update(sop_step_timings)
         conn.execute(
             "INSERT INTO occurrence_overrides (date_str, event_id, data) VALUES (?, ?, ?) "
             "ON CONFLICT(date_str, event_id) DO UPDATE SET data=excluded.data",

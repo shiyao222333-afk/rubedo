@@ -732,9 +732,26 @@ async def api_update_sop_step(request: Request):
         event_id = request.path_params["event_id"]
         data = await request.json()
         new_step = data.get("step")
-        
+        started_at = data.get("started_at")
+        duration_sec = data.get("duration_sec")
+        mode = data.get("mode")
+
         if new_step is None:
             return JSONResponse({"ok": False, "error": "缺少 step 参数"})
+
+        # 计时：前端传了 started_at + duration_sec 时，记录这一步的耗时
+        # （存进事件自身的 sop_step_timings，不新建表，符合"只做计时按钮"的最小改动）
+        timing_entry = None
+        if started_at is not None and duration_sec is not None:
+            step_idx = new_step - 1
+            timing_entry = {
+                str(step_idx): {
+                    "started_at": started_at,
+                    "duration_sec": duration_sec,
+                    "mode": mode or "manual",
+                    "recorded_at": datetime.now().isoformat(),
+                }
+            }
 
         # 限制1 fix: 重复事件（运行时展开，不在 events 表）的 SOP 步骤进度
         # 存进 occurrence_overrides（按 日期+event_id），与完成/锁定状态同表
@@ -746,7 +763,11 @@ async def api_update_sop_step(request: Request):
                 datetime.fromisoformat(date_str)  # 仅校验格式
             except ValueError:
                 return JSONResponse({"ok": False, "error": "无效的重复事件 id"})
-            write_occurrence_override(date_str, event_id, sop_current_step=new_step)
+            write_occurrence_override(
+                date_str, event_id,
+                sop_current_step=new_step,
+                sop_step_timings=timing_entry,
+            )
             return JSONResponse({"ok": True})
 
         # 普通事件：找到并更新 sop_current_step (v0.4 T3: 改走 SQLite DAL)
@@ -756,6 +777,8 @@ async def api_update_sop_step(request: Request):
             for ev in events:
                 if ev.get("id") == event_id:
                     ev["sop_current_step"] = new_step
+                    if timing_entry:
+                        ev.setdefault("sop_step_timings", {}).update(timing_entry)
                     found = True
                     break
             if found:
