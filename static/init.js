@@ -104,8 +104,6 @@
             show: function(event) {
                 console.log('DetailPanel.show:', event.kind, event.text);
                 if (!this.container) this.init();
-                var st = document.getElementById('panel-status');
-                if (st) st.textContent = (event.text || '事件') + (event.kind ? ' · ' + event.kind : '');
                 this.container.classList.add('show');
                 document.getElementById('detail-loading').style.display = 'block';
                 document.getElementById('detail-content').style.display = 'none';
@@ -138,8 +136,6 @@
 
             hide: function() {
                 if (!this.container) this.init();
-                var st = document.getElementById('panel-status');
-                if (st) st.textContent = '未选择事件';
                 this.container.classList.remove('show');
             },
 
@@ -198,51 +194,59 @@
                     
                     var sop = data.sop;
                     var currentStep = event.sop_current_step || 0;
-                    
+
+                    // ★ 兼容两种 SOP 结构：stages 嵌套（新）或 steps 扁平（旧）
+                    var allSteps = [];
+                    if (sop.stages && Array.isArray(sop.stages) && sop.stages.length) {
+                        sop.stages.forEach(function(st) {
+                            (st.steps || []).forEach(function(step) {
+                                allSteps.push(Object.assign({}, step, { _stage: st.stage, _stageName: st.name }));
+                            });
+                        });
+                    } else if (sop.steps && Array.isArray(sop.steps)) {
+                        allSteps = sop.steps;
+                    }
+
                     // 设置 SOP 名称
                     document.getElementById('sop-name').textContent = sop.name || 'SOP';
-                    
-                    // 计算进度
-                    var totalSteps = sop.steps ? sop.steps.length : 0;
-                    var doneSteps = currentStep; // 简化：当前步骤之前的都算完成
+
+                    var totalSteps = allSteps.length;
+                    var doneSteps = currentStep; // 当前步骤之前的都算完成
                     var progressPct = totalSteps > 0 ? Math.round(doneSteps / totalSteps * 100) : 0;
                     document.getElementById('sop-progress').textContent = doneSteps + '/' + totalSteps;
                     document.getElementById('sop-progress-fill').style.width = progressPct + '%';
-                    
+
                     // 渲染步骤导航条
                     var stepsContainer = document.getElementById('sop-steps');
                     stepsContainer.innerHTML = '';
-                    
-                    if (sop.steps) {
-                        sop.steps.forEach(function(step, idx) {
+                    if (totalSteps > 0) {
+                        allSteps.forEach(function(step, idx) {
                             var stepEl = document.createElement('div');
                             stepEl.className = 'sop-step';
                             if (idx === currentStep) stepEl.classList.add('active');
                             if (idx < currentStep) stepEl.classList.add('done');
-                            
+
                             var statusIcon = idx < currentStep ? '✓' : (idx === currentStep ? '▶' : '⏳');
-                            
-                            stepEl.innerHTML = '<span class="sop-step-status">' + statusIcon + '</span><span>' + (step.name || '步骤' + (idx + 1)) + '</span>';
-                            
+                            var label = (step.id ? step.id + ' ' : '') + (step.name || ('步骤' + (idx + 1)));
+                            stepEl.innerHTML = '<span class="sop-step-status">' + statusIcon + '</span><span>' + label + '</span>';
+
                             stepEl.onclick = function() {
-                                // 切换当前步骤高亮
                                 stepsContainer.querySelectorAll('.sop-step').forEach(function(el) {
                                     el.classList.remove('active');
                                 });
                                 stepEl.classList.add('active');
-                                
-                                // 显示工具区（占位）
-                                window.DetailPanel._showStepTool(sop, step, idx);
+                                window.DetailPanel._showStepTool(sop, step, idx, totalSteps);
                             };
-                            
+
                             stepsContainer.appendChild(stepEl);
                         });
+                        window.DetailPanel._showStepTool(sop, allSteps[currentStep], currentStep, totalSteps);
+                    } else {
+                        document.getElementById('sop-tool-area').innerHTML = '<div style="color:#aaa;padding:20px;">该 SOP 暂无步骤</div>';
                     }
-                    
-                    // 默认显示第一个步骤的工具区
-                    if (sop.steps && sop.steps.length > 0) {
-                        window.DetailPanel._showStepTool(sop, sop.steps[currentStep], currentStep);
-                    }
+
+                    // show() 里误显示的"加载中"在此关闭
+                    document.getElementById('detail-loading').style.display = 'none';
                 })
                 .catch(err => {
                     document.getElementById('sop-tool-area').innerHTML = '<div style="color:#e94560;padding:20px;">加载 SOP 失败：' + err + '</div>';
@@ -250,12 +254,14 @@
         });
         
         // ---- 显示步骤工具区（占位）----
-        window.DetailPanel._showStepTool = function(sop, step, stepIdx) {
+        window.DetailPanel._showStepTool = function(sop, step, stepIdx, totalSteps) {
             var toolArea = document.getElementById('sop-tool-area');
+            var stageTag = step._stageName ? ('【' + step._stageName + '】 ') : '';
             toolArea.innerHTML = `
-                <div style="color:#aaa;font-size:13px;margin-bottom:12px;">步骤 ${stepIdx + 1} / ${sop.steps.length}</div>
+                <div style="color:#aaa;font-size:13px;margin-bottom:12px;">步骤 ${stepIdx + 1} / ${totalSteps}${step.id ? ' · ' + step.id : ''} ${stageTag}</div>
                 <div style="font-size:16px;font-weight:bold;color:#eee;margin-bottom:8px;">${step.name || '无标题'}</div>
                 <div style="font-size:13px;color:#ccc;line-height:1.6;margin-bottom:20px;padding:12px;background:#1a1a2e;border-radius:8px;">${step.description || '无描述'}</div>
+                <div style="font-size:12px;color:#888;margin-bottom:12px;">模式：${step.mode || 'manual'} · 预计：${step.est_min || 0} 分钟</div>
                 <div style="display:flex;gap:10px;">
                     <button onclick="window.DetailPanel._markStepDone(${stepIdx})" style="padding:8px 16px;border:1px solid #0f3460;border-radius:6px;background:#0f3460;color:#eee;cursor:pointer;font-size:13px;">
                         ${stepIdx < (window.DetailPanel._currentEvent.sop_current_step || 0) ? '已完成 ✓' : '标记完成'}
@@ -1905,15 +1911,7 @@
         // 先暴露到全局（在 init() 之前），确保诊断工具一定能读到
         window.dp = dp;
 
-        // 底部工具条「➕ 新建」按钮：打开创建弹窗，默认填本周一 09:00–10:00
-        window.quickCreate = function() {
-            var base = currentStart;
-            var start = base.hour(9).minute(0).second(0);
-            var end = base.hour(10).minute(0).second(0);
-            showCreateDialog(start.format("YYYY-MM-DDTHH:mm:ss"), end.format("YYYY-MM-DDTHH:mm:ss"));
-        };
-        // 暴露 loadEvents 到全局，供底部工具条「刷新」按钮 onclick 调用
-        window.loadEvents = loadEvents;
+        // (底部常驻按钮条已移除：点事件后在面板内显示详情/步骤工具)
 
         // 让 .main-layout 高度 = 100vh − 导航栏高度，消除整体溢出视口的 bug
         // （根因：导航栏在 .main-layout 上方，main-layout 还写 height:100vh 就溢出 84px，

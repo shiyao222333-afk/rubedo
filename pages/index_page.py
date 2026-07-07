@@ -70,21 +70,7 @@ def index():
             color: #9aa;
             font-size: 14px;
         }
-        /* ---- 底部常驻工具条（空闲时也不空，始终有可见操作按钮）---- */
-        #panel-toolbar {
-            display: flex; align-items: center; gap: 8px;
-            padding: 8px 12px;
-            background: #0f3460;
-            border-bottom: 1px solid #e94560;
-            flex-shrink: 0;
-        }
-        #panel-toolbar button {
-            background: #16213e; color: #e94560;
-            border: 1px solid #e94560; border-radius: 6px;
-            padding: 6px 14px; cursor: pointer; font-size: 13px;
-        }
-        #panel-toolbar button:hover { background: #e94560; color: #fff; }
-        #panel-toolbar .label { color: #aaa; font-size: 13px; margin-left: auto; }
+        /* (底部常驻按钮条样式已移除) */
         #sop-content {
             display: none;
             flex-direction: column;
@@ -321,12 +307,7 @@ def index():
     ui.html("""<div class="main-layout">
         <div id="calendar"></div>
         <div id="detail-panel">
-            <div id="panel-toolbar">
-                <button onclick="window.quickCreate()">➕ 新建</button>
-                <button onclick="navToday()">📅 今天</button>
-                <button onclick="loadEvents()">🔄 刷新</button>
-                <span class="label" id="panel-status">未选择事件</span>
-            </div>
+            <!-- (底部按钮条已移除：点事件后在面板内显示详情) -->
             <div id="sop-empty">⚙️ 请点击日历事件加载 SOP</div>
             <div id="sop-content">
                 <div id="sop-header">
