@@ -7,7 +7,6 @@ Rubedo · 凝华 — API 路由模块
 """
 
 import json
-import traceback
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -15,6 +14,9 @@ from uuid import uuid4
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+
+from modules.shared.logging_cfg import get_logger
+log = get_logger("rubedo.api")
 
 from utils import (
     read_day, write_day, read_schedules, write_schedules,
@@ -84,17 +86,16 @@ async def api_create_event(request: Request):
         write_day(day, events)
         return JSONResponse({"ok": True, "id": new_id, "event": event})
     except json.JSONDecodeError as e:
-        print(f"[ERROR] api_create_event: JSON decode error: {e}")
+        log.error(f"api_create_event: JSON decode error: {e}")
         return JSONResponse({"ok": False, "error": "Invalid JSON"})
     except KeyError as e:
-        print(f"[ERROR] api_create_event: Missing key: {e}")
+        log.error(f"api_create_event: Missing key: {e}")
         return JSONResponse({"ok": False, "error": f"Missing required field: {e}"})
     except ValueError as e:
-        print(f"[ERROR] api_create_event: Value error: {e}")
+        log.error(f"api_create_event: Value error: {e}")
         return JSONResponse({"ok": False, "error": f"Invalid value: {e}"})
     except Exception as e:
-        print(f"[ERROR] api_create_event: Unexpected error: {e}")
-        traceback.print_exc()
+        log.exception(f"api_create_event: Unexpected error: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -147,11 +148,11 @@ async def api_update_event(request: Request):
             except (ValueError, TypeError):
                 return JSONResponse({"ok": False, "error": "Invalid time format, expected ISO 8601"})
         
-        print(f"[DEBUG] api_update_event: recurring={data.get('recurring')}, schedule_id={data.get('schedule_id')}")
+        log.debug(f"api_update_event: recurring={data.get('recurring')}, schedule_id={data.get('schedule_id')}")
         
         # ---- 重复事件：改模板（schedules.json）----
         if data.get("recurring") and data.get("schedule_id"):
-            print(f"[DEBUG] Updating recurring event, schedule_id={data['schedule_id']}")
+            log.debug(f"Updating recurring event, schedule_id={data['schedule_id']}")
             schedules = read_schedules()
 
             for sch in schedules:
@@ -200,17 +201,16 @@ async def api_update_event(request: Request):
         write_day(day, events)
         return JSONResponse({"ok": True})
     except json.JSONDecodeError as e:
-        print(f"[ERROR] api_update_event: JSON decode error: {e}")
+        log.error(f"api_update_event: JSON decode error: {e}")
         return JSONResponse({"ok": False, "error": "Invalid JSON"})
     except KeyError as e:
-        print(f"[ERROR] api_update_event: Missing key: {e}")
+        log.error(f"api_update_event: Missing key: {e}")
         return JSONResponse({"ok": False, "error": f"Missing required field: {e}"})
     except ValueError as e:
-        print(f"[ERROR] api_update_event: Value error: {e}")
+        log.error(f"api_update_event: Value error: {e}")
         return JSONResponse({"ok": False, "error": f"Invalid value: {e}"})
     except Exception as e:
-        print(f"[ERROR] api_update_event: Unexpected error: {e}")
-        traceback.print_exc()
+        log.exception(f"api_update_event: Unexpected error: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -230,8 +230,7 @@ async def api_list_events(request: Request):
         events.extend(recurring_events)
         return JSONResponse(events)
     except Exception as e:
-        print(f"[ERROR] api_list_events: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_list_events: {e}")
         return JSONResponse([])
 
 
@@ -248,8 +247,7 @@ async def api_update_status(request: Request):
         write_day(day, events)
         return JSONResponse({"ok": True})
     except Exception as e:
-        print(f"[ERROR] api_update_status: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_update_status: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -274,8 +272,7 @@ async def api_move_event(request: Request):
             write_day(new_day, new_events)
         return JSONResponse({"ok": True, "event": moved})
     except Exception as e:
-        print(f"[ERROR] api_move_event: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_move_event: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -289,8 +286,7 @@ async def api_delete_event(request: Request):
         write_day(day, events)
         return JSONResponse({"ok": True})
     except Exception as e:
-        print(f"[ERROR] api_delete_event: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_delete_event: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -307,8 +303,7 @@ async def api_lock_event(request: Request):
         write_day(day, events)
         return JSONResponse({"ok": True})
     except Exception as e:
-        print(f"[ERROR] api_lock_event: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_lock_event: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -414,8 +409,7 @@ async def api_cell_backgrounds(request: Request):
 
         return JSONResponse({"dates": dates})
     except Exception as e:
-        print(f"[ERROR] api_cell_backgrounds: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_cell_backgrounds: {e}")
         return JSONResponse({"dates": {}})
 
 
@@ -478,8 +472,7 @@ async def api_write_timelog(request: Request):
         write_timelog_entry(entry)
         return JSONResponse({"ok": True, "entry": entry})
     except Exception as e:
-        print(f"[ERROR] api_write_timelog: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_write_timelog: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -501,8 +494,7 @@ async def api_timelog_report(request: Request):
 
         return JSONResponse({"ok": True, "stats": stats, "entries": entries})
     except Exception as e:
-        print(f"[ERROR] api_timelog_report: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_timelog_report: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -513,8 +505,7 @@ async def api_list_custom_holidays(request: Request):
     try:
         return JSONResponse({"ok": True, "holidays": read_custom_holidays()})
     except Exception as e:
-        print(f"[ERROR] api_list_custom_holidays: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_list_custom_holidays: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -543,8 +534,7 @@ async def api_add_custom_holiday(request: Request):
         write_custom_holidays(holidays)
         return JSONResponse({"ok": True})
     except Exception as e:
-        print(f"[ERROR] api_add_custom_holiday: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_add_custom_holiday: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -561,8 +551,7 @@ async def api_delete_custom_holiday(request: Request):
         write_custom_holidays(holidays)
         return JSONResponse({"ok": True})
     except Exception as e:
-        print(f"[ERROR] api_delete_custom_holiday: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_delete_custom_holiday: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -574,8 +563,7 @@ async def api_list_schedules(request: Request):
         schedules = read_schedules()
         return JSONResponse({"ok": True, "schedules": schedules})
     except Exception as e:
-        print(f"[ERROR] api_list_schedules: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_list_schedules: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -610,8 +598,7 @@ async def api_create_schedule(request: Request):
         write_schedules(schedules)
         return JSONResponse({"ok": True, "id": new_id, "schedule": schedule})
     except Exception as e:
-        print(f"[ERROR] api_create_schedule: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_create_schedule: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -634,8 +621,7 @@ async def api_update_schedule(request: Request):
         write_schedules(schedules)
         return JSONResponse({"ok": True})
     except Exception as e:
-        print(f"[ERROR] api_update_schedule: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_update_schedule: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -648,8 +634,7 @@ async def api_delete_schedule(request: Request):
         write_schedules(schedules)
         return JSONResponse({"ok": True})
     except Exception as e:
-        print(f"[ERROR] api_delete_schedule: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_delete_schedule: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -663,8 +648,7 @@ async def api_get_schedule(request: Request):
                 return JSONResponse({"ok": True, "schedule": sch})
         return JSONResponse({"ok": False, "error": "Schedule not found"})
     except Exception as e:
-        print(f"[ERROR] api_get_schedule: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_get_schedule: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -679,8 +663,7 @@ async def api_set_occurrence_status(request: Request):
         write_occurrence_override(date_str, event_id, status=status)
         return JSONResponse({"ok": True})
     except Exception as e:
-        print(f"[ERROR] api_set_occurrence_status: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_set_occurrence_status: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -695,8 +678,7 @@ async def api_set_occurrence_lock(request: Request):
         write_occurrence_override(date_str, event_id, locked=locked)
         return JSONResponse({"ok": True})
     except Exception as e:
-        print(f"[ERROR] api_set_occurrence_lock: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_set_occurrence_lock: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -710,8 +692,7 @@ async def api_list_special_days(request: Request):
         special_days = get_special_days(year)
         return JSONResponse({"ok": True, "special_days": special_days})
     except Exception as e:
-        print(f"[ERROR] api_list_special_days: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_list_special_days: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -726,8 +707,7 @@ async def api_get_sop(request: Request):
             return JSONResponse({"ok": False, "error": f"SOP {sop_id} 不存在"})
         return JSONResponse({"ok": True, "sop": sop_data})
     except Exception as e:
-        print(f"[ERROR] api_get_sop: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_get_sop: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
@@ -760,8 +740,7 @@ async def api_update_sop_step(request: Request):
         
         return JSONResponse({"ok": True})
     except Exception as e:
-        print(f"[ERROR] api_update_sop_step: {e}")
-        import traceback; traceback.print_exc()
+        log.exception(f"api_update_sop_step: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 

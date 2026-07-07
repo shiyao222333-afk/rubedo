@@ -29,6 +29,14 @@
 - **`showContextMenu` 函数**：右键菜单相关代码已清理
 
 ### Fixed
+- **v0.4 T3 审查全修**：
+  - 🔴 **P0 — SOP 步骤进度写回**：`utils.find_event_by_id` 原返回 `(day, 单事件)`，与 `api_update_sop_step`「按列表遍历」的契约不符，导致 SOP 步骤进度永远保存失败（静默失败，废了"数据回流"）。改为返回整天的事件列表，调用方零改动
+  - 🟡 **并发写保护**：`store._connect()` 新增 `PRAGMA busy_timeout=5000`，修复 T3 移除 filelock 后 WAL 并发写直接报 `database is locked` 被静默吞掉、写操作丢失的隐患
+  - 🟡 **日志底座接线**：`app.py` 启动调用 `setup_logging(DATA_DIR/"rubedo.log")`；`api.py`/`holidays.py`/`store.py` 全部 `print`/`traceback` 改为统一 `log.error`/`log.exception`/`log.warning`，日志真正落盘（此前根 logger 未配置 handler，所有 `log.xxx()` 是空转）
+  - ⚪ **`store.write_schedules` 加 id 校验**：缺 id 的 schedule 跳过并告警，避免主键冲突导致事务回滚、写入持续失败
+  - ⚪ **删除死代码**：根 `timelog.py`（直读旧 JSON 的数据分裂地雷，无任何活跃 import）已删除；`shared/time-tracker/` 为独立 tkinter 工具、不读 rubedo 存储，保留
+
+### Fixed
 - **并发安全**：所有文件 I/O（`read_day`, `write_day`, `read_schedules`, `write_schedules`, `read_occurrence_overrides`, `write_occurrence_override`, `read_timelog`, `write_timelog_entry`）添加 `filelock` 锁，防止多请求并发写入数据损坏
 - **异常处理**：所有 API 路由的 `except Exception` 块添加错误日志（`print` + `traceback.print_exc()`），方便调试
 - **硬编码年份修复**：`holidays.py` 中 `SOLAR_TERMS_2025` 改为 `SOLAR_TERMS_BY_YEAR`（支持 2024-2026 年），`api.py` 同步更新

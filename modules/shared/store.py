@@ -18,6 +18,9 @@ from pathlib import Path
 from typing import Optional
 
 from .errors import DataAccessError
+from .logging_cfg import get_logger
+
+log = get_logger("rubedo.store")
 
 _DB_PATH: Optional[Path] = None
 
@@ -37,6 +40,7 @@ def _connect():
     if _DB_PATH is None:
         raise DataAccessError("store 未初始化：请先调用 init_store()")
     conn = sqlite3.connect(str(_DB_PATH))
+    conn.execute("PRAGMA busy_timeout=5000")  # 并发写冲突时等待 5s，而非立即报 database is locked
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -196,7 +200,12 @@ def write_schedules(schedules: list) -> None:
     with _connect() as conn:
         conn.execute("DELETE FROM schedules")
         for s in schedules:
-            sid = s.get("id", "")
+            sid = s.get("id")
+            if not sid:
+                log.warning(
+                    f"write_schedules: 跳过缺 id 的 schedule（title={s.get('title', '<无>')}），避免主键冲突"
+                )
+                continue
             conn.execute(
                 "INSERT INTO schedules (id, data) VALUES (?, ?)",
                 (sid, json.dumps(s, ensure_ascii=False)),

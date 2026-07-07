@@ -15,6 +15,9 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+from modules.shared.logging_cfg import get_logger
+log = get_logger("rubedo.holidays")
+
 from utils import DATA_DIR, read_schedules, read_custom_holidays
 
 # ====== Holiday Files ======
@@ -223,7 +226,7 @@ def fetch_holidays(year: int) -> dict:
             last_error = e
             break
 
-    print(f"[WARN] Failed to fetch holidays for {year}: {last_error}")
+    log.warning(f"Failed to fetch holidays for {year}: {last_error}")
     # Fall back to lunar computation on API failure
     fallback = _compute_lunar_holidays(year)
     if fallback.get("holidays"):
@@ -274,9 +277,9 @@ def get_all_festivals_for_year(year: int) -> list[tuple]:
         mmdd = f"{solar.getMonth():02d}-{solar.getDay():02d}"
         festivals.append(("七夕", mmdd, mmdd))
     except ImportError:
-        print("[WARN] lunar-python not installed — 七夕 will not appear on calendar")
+        log.warning("lunar-python not installed — 七夕 will not appear on calendar")
     except Exception as e:
-        print(f"[ERROR] Failed to compute 七夕 date: {e}")
+        log.error(f"Failed to compute 七夕 date: {e}")
 
     return festivals
 

@@ -17,6 +17,8 @@ import time
 from pathlib import Path
 from datetime import date, timedelta
 
+from modules.shared.logging_cfg import setup_logging, get_logger
+
 # ====== NiceGUI ======
 from nicegui import app, ui
 from starlette.requests import Request
@@ -29,6 +31,10 @@ from holidays import *
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 SOPS_DIR.mkdir(parents=True, exist_ok=True)
 TIMELOG_DIR.mkdir(parents=True, exist_ok=True)
+
+# 初始化统一日志（T3 修复：日志底座接线，让所有 rubedo.* logger 写 data/rubedo.log）
+setup_logging(DATA_DIR / "rubedo.log")
+app_log = get_logger("rubedo.app")
 
 # Mount static/ directory → serves /static/*.js and *.css
 app.add_static_files('/static', str(BASE_DIR / 'static'))
@@ -81,7 +87,7 @@ def on_startup():
     scheduler = get_scheduler()
     if scheduler is not None and not scheduler.running:
         scheduler.start()
-        print("[Rubedo] APScheduler 已启动 (SQLite 持久化)")
+        app_log.info("[Rubedo] APScheduler 已启动 (SQLite 持久化)")
 
     # 后台获取节假日数据（当前年 + 明年，间隔2秒避免限流）
     import threading
@@ -93,11 +99,11 @@ def on_startup():
             try:
                 data = fetch_holidays(yr)
                 if data and data.get("holidays"):
-                    print(f"[Rubedo] 节假日数据已获取 ({yr}年, {len(data['holidays'])}天)")
+                    app_log.info(f"[Rubedo] 节假日数据已获取 ({yr}年, {len(data['holidays'])}天)")
                 else:
-                    print(f"[Rubedo] 节假日数据为空 ({yr}年)")
+                    app_log.info(f"[Rubedo] 节假日数据为空 ({yr}年)")
             except Exception as e:
-                print(f"[Rubedo] 节假日获取异常 ({yr}年): {e}")
+                app_log.warning(f"[Rubedo] 节假日获取异常 ({yr}年): {e}")
             if yr < current_year + 1:
                 time.sleep(1.5)  # 间隔防限流
 
@@ -110,7 +116,7 @@ def on_shutdown():
     scheduler = get_scheduler()
     if scheduler is not None and scheduler.running:
         scheduler.shutdown()
-        print("[Rubedo] APScheduler 已关闭")
+        app_log.info("[Rubedo] APScheduler 已关闭")
 
 
 app.on_startup(on_startup)

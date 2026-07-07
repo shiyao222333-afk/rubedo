@@ -252,15 +252,20 @@ def write_custom_holidays(items: list) -> None:
 
 # ====== Event lookup helper (v0.4 T3: 供 api_update_sop_step 在 SQLite 中定位/写回事件) ======
 def find_event_by_id(event_id: str):
-    """在 SQLite 中按 id 查找事件，返回 (day: date, event: dict) 或 (None, None)。"""
+    """在 SQLite 中按 id 查找事件，返回 (day: date, events: list) 或 (None, None)。
+
+    返回整天的事件列表（而非单个事件），与 save_event_day(day, events) 契约一致，
+    供调用方修改 sop_current_step 等字段后整体写回。
+    """
     for day_str in store.all_event_days():
         try:
             d = date.fromisoformat(day_str)
         except ValueError:
             continue
-        for ev in store.read_day(d):
+        events = store.read_day(d)
+        for ev in events:
             if ev.get("id") == event_id:
-                return d, ev
+                return d, events
     return None, None
 
 
