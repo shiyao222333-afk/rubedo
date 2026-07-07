@@ -18,6 +18,7 @@ rubedo.db-wal
 rubedo.db-shm
 data_backup_*/
 data/migrate.log
+data/rubedo_client_errors.log
 
 # 临时测试数据库（本地验证用，禁止提交）
 _t_*.db

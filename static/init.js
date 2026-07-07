@@ -12,11 +12,47 @@
             if (!b) {
                 b = document.createElement("div");
                 b.id = "err-banner";
-                b.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9999;background:#c0392b;color:#fff;padding:10px 16px;font:13px/1.5 Microsoft YaHei,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.4);white-space:pre-wrap;max-height:40vh;overflow:auto;";
+                b.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;background:#c0392b;color:#fff;padding:10px 16px;font:13px/1.5 Microsoft YaHei,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.4);white-space:pre-wrap;max-height:40vh;overflow:auto;user-select:text;";
+                // 复制按钮（兜底：用户也可手动点复制）
+                var cp = document.createElement("button");
+                cp.id = "err-copy-btn";
+                cp.textContent = "📋 复制";
+                cp.style.cssText = "position:absolute;top:8px;right:12px;background:#fff;color:#c0392b;border:none;border-radius:4px;padding:4px 10px;font:12px Microsoft YaHei,sans-serif;cursor:pointer;";
+                cp.onclick = function() {
+                    var txt = document.getElementById("err-banner-text").innerText;
+                    try {
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            navigator.clipboard.writeText(txt).then(function() {
+                                cp.textContent = "✅ 已复制";
+                                setTimeout(function() { cp.textContent = "📋 复制"; }, 1500);
+                            });
+                        } else { throw new Error("no clipboard"); }
+                    } catch (e) {
+                        var ta = document.createElement("textarea");
+                        ta.value = txt;
+                        document.body.appendChild(ta);
+                        ta.select();
+                        try { document.execCommand("copy"); cp.textContent = "✅ 已复制"; } catch (e2) {}
+                        ta.remove();
+                    }
+                };
+                b.appendChild(cp);
+                var sp = document.createElement("span");
+                sp.id = "err-banner-text";
+                sp.style.cssText = "display:block;padding-right:70px;";
+                b.appendChild(sp);
                 document.body.appendChild(b);
             }
-            b.textContent = "⚠️ 前端错误（把这段发给我即可定位）：\n" + msg;
+            document.getElementById("err-banner-text").textContent = "⚠️ 前端错误（已自动上报，无需手动复制）：\n" + msg;
             b.style.display = "block";
+            // 自动上报到后端日志，用户无需复制
+            try {
+                fetch("/api/client-error", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ message: msg, url: location.href, time: new Date().toISOString() })
+                }).catch(function() {});
+            } catch (e) {}
         }
         window.addEventListener("error", function(e) {
             showErrorBanner((e.message || "Error") + "\n@ " + (e.filename || "") + ":" + (e.lineno || ""));
@@ -1037,6 +1073,7 @@
                         alert("创建失败：" + (data.error || "未知错误"));
                     }
                 }).catch(function(err) {
+                    showErrorBanner("创建请求失败: " + (err && err.stack ? err.stack : err.toString()));
                     alert("❌ " + err.toString());
                 });
             });

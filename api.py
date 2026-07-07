@@ -7,6 +7,7 @@ Rubedo · 凝华 — API 路由模块
 """
 
 import json
+import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -764,11 +765,36 @@ async def api_update_sop_step(request: Request):
 
 # ====== Route Registration ======
 
+async def api_report_client_error(request: Request):
+    """前端把浏览器里发生的错误上报到这里，写入 data/rubedo_client_errors.log。
+
+    这样用户（非程序员）无需复制粘贴，后端可直接读取定位问题。
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    message = str(payload.get("message", ""))
+    url = str(payload.get("url", ""))
+    ts = str(payload.get("time", ""))
+    entry = f"[{ts}] {url}\n{message}\n{'-' * 60}\n"
+    try:
+        log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        os.makedirs(log_dir, exist_ok=True)
+        with open(os.path.join(log_dir, "rubedo_client_errors.log"), "a", encoding="utf-8") as f:
+            f.write(entry)
+    except Exception as e:
+        log.error(f"api_report_client_error: 写入日志失败: {e}")
+    return JSONResponse({"ok": True})
+
+
 def register_api_routes(app):
     """Register all API routes with the NiceGUI app object.
 
     Call this once from app.py after `app` is created.
     """
+    # 客户端错误上报（前端红字自动飞到这里）
+    app.router.add_route("/api/client-error",        api_report_client_error,  methods=["POST"])
     # Event routes
     app.router.add_route("/api/events/create",        api_create_event,        methods=["POST"])
     app.router.add_route("/api/events/update",        api_update_event,        methods=["PUT"])
