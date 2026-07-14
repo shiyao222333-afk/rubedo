@@ -1,55 +1,60 @@
 @echo off
 chcp 437 >nul
-title Rubedo v0.3.0
+title Rubedo v0.3.0 - SOP Platform
+setlocal enabledelayedexpansion
+set "PROJECT_DIR=%~dp0"
+if "%PROJECT_DIR:~-1%"=="\" set "PROJECT_DIR=%PROJECT_DIR:~0,-1%"
+cd /d "%PROJECT_DIR%"
 
-echo ================================
-echo   Rubedo v0.3.0 - SOP Platform
-echo ================================
+echo **************************************************
+echo   * Rubedo v0.3.0 (SOP Platform)  * Opus Magnum Front-Half
+echo   Port: 8081   *   One-click launcher
+echo **************************************************
 echo.
 
-:: Kill old process on port 8081 (fix "only one usage of socket" error)
+REM --- Python: prefer project venv; create if missing; fallback to system python ---
+if exist "%PROJECT_DIR%\venv\Scripts\python.exe" (
+    set "PY=%PROJECT_DIR%\venv\Scripts\python.exe"
+) else (
+    where python >nul 2>nul
+    if not errorlevel 1 (
+        echo [SETUP] First run: creating venv and installing dependencies...
+        python -m venv "%PROJECT_DIR%\venv" && "%PROJECT_DIR%\venv\Scripts\python.exe" -m pip install -r "%PROJECT_DIR%\requirements.txt"
+        if exist "%PROJECT_DIR%\venv\Scripts\python.exe" (
+            set "PY=%PROJECT_DIR%\venv\Scripts\python.exe"
+        ) else (
+            set "PY=python"
+        )
+    ) else (
+        set "PY=python"
+    )
+)
+
+REM --- Dependency check ---
+%PY% -c "import nicegui, apscheduler, starlette, lunar_python" >nul 2>&1
+if errorlevel 1 (
+    echo [INSTALL] Installing dependencies...
+    %PY% -m pip install -r "%PROJECT_DIR%\requirements.txt"
+)
+
+REM --- Kill old process on port 8081 ---
 powershell -Command "Get-NetTCPConnection -LocalPort 8081 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
-powershell -Command "Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*rubedo*' -or $_.MainWindowTitle -like '*rubedo*' } | Stop-Process -Force -ErrorAction SilentlyContinue" >nul 2>&1
 timeout /t 2 >nul
 
-:: Check Python
-python --version >nul 2>&1
-if %errorlevel% neq 0 goto no_python
-
-:: Check dependencies
-python -c "import nicegui, apscheduler, starlette, lunar_python" >nul 2>&1
-if %errorlevel% equ 0 goto deps_ok
-
-echo [INSTALL] Installing dependencies...
-pip install nicegui APScheduler lunar-python
-if %errorlevel% neq 0 goto install_fail
-
-:deps_ok
-
-:: Start app
-echo [START] Starting Rubedo...
-echo.
-python app.py
+REM --- Launch (NiceGUI native window) ---
+echo [START] Rubedo on http://127.0.0.1:8081
+start "" http://127.0.0.1:8081
+%PY% app.py
 set EXIT_CODE=%errorlevel%
 if %EXIT_CODE% NEQ 0 goto error_exit
 goto normal_exit
 
-:no_python
-echo [ERROR] Python not found. Please install Python 3.10+
-pause
-exit /b 1
-
-:install_fail
-echo [ERROR] Dependency installation failed
-pause
-exit /b 1
-
 :error_exit
 echo.
-echo ===================================================
+echo ==================================================
 echo   App exited abnormally (exit code %EXIT_CODE%)
 echo   Check error messages above
-echo ===================================================
+echo ==================================================
 pause
 cmd /k
 
